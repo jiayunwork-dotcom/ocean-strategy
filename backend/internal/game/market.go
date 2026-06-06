@@ -830,7 +830,7 @@ func (ge *GameEngine) AcceptFuturesContract(playerID uuid.UUID, contractID uuid.
 	}
 
 	if player.Money < contract.InitialMargin {
-		return false, "金币不足，需缴纳保证金" + strconv.Itoa(contract.InitialMargin) + "金币", nil
+		return false, "金币不足，需缴纳保证金" + strconv.Itoa(contract.InitialMargin) + "金币"
 	}
 
 	player.Money -= contract.InitialMargin
@@ -838,8 +838,11 @@ func (ge *GameEngine) AcceptFuturesContract(playerID uuid.UUID, contractID uuid.
 	contract.AccepterMargin = contract.InitialMargin
 	contract.Status = models.FuturesStatusActive
 
-	creator := ge.state.Players[contract.CreatorID]
-	ge.addGameLog("futures", player.Name+" 接受了"+creator.Name+"的期货合约："+
+	creatorName := "未知玩家"
+	if creator := ge.state.Players[contract.CreatorID]; creator != nil {
+		creatorName = creator.Name
+	}
+	ge.addGameLog("futures", player.Name+" 接受了"+creatorName+"的期货合约："+
 		strResource(contract.Resource)+" x"+strconv.Itoa(contract.Quantity), &playerID)
 
 	return true, ""
@@ -962,6 +965,9 @@ func (ge *GameEngine) ForceLiquidateContract(contract *models.FuturesContract) *
 	if contract.Status != models.FuturesStatusActive {
 		return nil
 	}
+	if contract.AccepterID == nil {
+		return nil
+	}
 
 	currentPrice := ge.getMarketPrice(contract.Resource)
 	priceDiff := currentPrice - contract.ContractPrice
@@ -970,6 +976,9 @@ func (ge *GameEngine) ForceLiquidateContract(contract *models.FuturesContract) *
 
 	creator := ge.state.Players[contract.CreatorID]
 	accepter := ge.state.Players[*contract.AccepterID]
+	if creator == nil || accepter == nil {
+		return nil
+	}
 
 	var actualCreatorPnL, actualAccepterPnL int
 	if creatorPnL > 0 {
@@ -1017,6 +1026,9 @@ func (ge *GameEngine) SettleFuturesContract(contract *models.FuturesContract) *m
 	if contract.Status != models.FuturesStatusActive {
 		return nil
 	}
+	if contract.AccepterID == nil {
+		return nil
+	}
 
 	currentPrice := ge.getMarketPrice(contract.Resource)
 	priceDiff := currentPrice - contract.ContractPrice
@@ -1025,6 +1037,9 @@ func (ge *GameEngine) SettleFuturesContract(contract *models.FuturesContract) *m
 
 	creator := ge.state.Players[contract.CreatorID]
 	accepter := ge.state.Players[*contract.AccepterID]
+	if creator == nil || accepter == nil {
+		return nil
+	}
 
 	creator.Money += contract.CreatorMargin + creatorPnL
 	accepter.Money += contract.AccepterMargin + accepterPnL
