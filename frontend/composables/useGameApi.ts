@@ -1,4 +1,4 @@
-import type { Game, GameState, Player, Technology } from '~/types'
+import type { Game, GameState, Player, Technology, MarketData, Auction, OrderType, ResourceType, AuctionItemType } from '~/types'
 
 export function useGameApi() {
   const config = useRuntimeConfig()
@@ -102,6 +102,41 @@ export function useGameApi() {
     })
   }
 
+  const getMarketData = async (gameId: string, playerId?: string): Promise<MarketData> => {
+    const query = playerId ? { player_id: playerId } : {}
+    const res = await $fetch<MarketData>(`${baseUrl}/games/${gameId}/market`, { query })
+    return res
+  }
+
+  const placeOrder = async (gameId: string, playerId: string, orderType: OrderType, resource: ResourceType, quantity: number, price: number): Promise<void> => {
+    await $fetch(`${baseUrl}/games/${gameId}/market/orders`, {
+      method: 'POST',
+      body: { player_id: playerId, order_type: orderType, resource, quantity, price }
+    })
+  }
+
+  const cancelOrder = async (gameId: string, playerId: string, orderId: string): Promise<void> => {
+    await $fetch(`${baseUrl}/games/${gameId}/market/orders/cancel`, {
+      method: 'POST',
+      body: { player_id: playerId, order_id: orderId }
+    })
+  }
+
+  const createAuction = async (gameId: string, playerId: string, itemType: AuctionItemType, itemId: string, startingPrice: number): Promise<Auction> => {
+    const res = await $fetch<any>(`${baseUrl}/games/${gameId}/auctions`, {
+      method: 'POST',
+      body: { player_id: playerId, item_type: itemType, item_id: itemId, starting_price: startingPrice }
+    })
+    return res.auction
+  }
+
+  const placeBid = async (gameId: string, playerId: string, auctionId: string, amount: number): Promise<void> => {
+    await $fetch(`${baseUrl}/games/${gameId}/auctions/bid`, {
+      method: 'POST',
+      body: { player_id: playerId, auction_id: auctionId, amount }
+    })
+  }
+
   return {
     listGames,
     createGame,
@@ -117,6 +152,11 @@ export function useGameApi() {
     getTechnologies,
     proposeTreaty,
     respondToProposal,
-    breakTreaty
+    breakTreaty,
+    getMarketData,
+    placeOrder,
+    cancelOrder,
+    createAuction,
+    placeBid
   }
 }

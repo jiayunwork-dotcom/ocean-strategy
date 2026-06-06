@@ -72,6 +72,9 @@ func (ge *GameEngine) produceFromFacility(facility *models.Facility, hex *models
 					player.Money += produced * ge.getMarketPrice(resource)
 					hex.Resources[resource] -= produced
 					hex.Pollution = min(100, hex.Pollution+2)
+					if ge.state.ResourceStats != nil && ge.state.ResourceStats[resource] != nil {
+						ge.state.ResourceStats[resource].TotalMined += produced
+					}
 				}
 			}
 		}
@@ -83,6 +86,9 @@ func (ge *GameEngine) produceFromFacility(facility *models.Facility, hex *models
 				if produced > 0 && hex.Resources[resource] > 0 {
 					player.Money += produced * ge.getMarketPrice(resource)
 					hex.Resources[resource] -= produced
+					if ge.state.ResourceStats != nil && ge.state.ResourceStats[resource] != nil {
+						ge.state.ResourceStats[resource].TotalMined += produced
+					}
 				}
 			}
 		}
@@ -100,6 +106,9 @@ func (ge *GameEngine) produceFromFacility(facility *models.Facility, hex *models
 			produced := int(50 * productionMultiplier * (float64(hex.EcologicalHealth) / 100))
 			player.Money += produced * ge.getMarketPrice(models.ResourceBiomaterial)
 			hex.EcologicalHealth = max(0, hex.EcologicalHealth-1)
+			if ge.state.ResourceStats != nil && ge.state.ResourceStats[models.ResourceBiomaterial] != nil {
+				ge.state.ResourceStats[models.ResourceBiomaterial].TotalMined += produced
+			}
 		}
 	}
 
@@ -215,6 +224,10 @@ func (ge *GameEngine) updateEcology() {
 }
 
 func (ge *GameEngine) runSettlementPhase() {
+	ge.MatchOrders()
+	ge.CalculateResourceStats()
+	ge.UpdatePrices()
+	ge.ProcessAuctions()
 	ge.destroyDestroyedShips()
 	ge.repairFacilities()
 	ge.progressFacilityConstruction()

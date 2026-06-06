@@ -8,6 +8,10 @@ export type TechnologyCategory = 'extraction' | 'ecology' | 'military'
 export type RelationStatus = 'neutral' | 'nap' | 'alliance' | 'hostile'
 export type TreatyType = 'nap' | 'alliance'
 export type ProposalStatus = 'pending' | 'accepted' | 'rejected'
+export type OrderType = 'buy' | 'sell'
+export type OrderStatus = 'active' | 'partial' | 'filled' | 'cancelled'
+export type AuctionItemType = 'tech' | 'ship' | 'blueprint'
+export type AuctionStatus = 'active' | 'finished' | 'expired'
 
 export interface Player {
   id: string
@@ -186,6 +190,15 @@ export interface GameState {
   battle_logs: BattleLog[]
   game_logs: GameLogEntry[]
   typhoons: Typhoon[]
+  market_orders: MarketOrder[]
+  trade_records: TradeRecord[]
+  price_history: PriceHistoryEntry[]
+  resource_stats: Record<string, ResourceStats>
+  auctions: Auction[]
+  auction_bids: AuctionBid[]
+  current_prices: Record<ResourceType, number>
+  frozen_ships: Record<string, string>
+  frozen_techs: Record<string, string>
 }
 
 export const TERRAIN_COLORS: Record<HexTerrain, string> = {
@@ -248,6 +261,112 @@ export const RELATION_STATUS_COLORS: Record<RelationStatus, string> = {
   nap: '#22c55e',
   alliance: '#3b82f6',
   hostile: '#ef4444'
+}
+
+export interface MarketOrder {
+  id: string
+  game_id: string
+  player_id: string
+  order_type: OrderType
+  resource: ResourceType
+  quantity: number
+  remaining_qty: number
+  price: number
+  status: OrderStatus
+  created_turn: number
+  created_at: string
+}
+
+export interface TradeRecord {
+  id: string
+  game_id: string
+  buy_order_id: string
+  sell_order_id: string
+  buyer_id: string
+  seller_id: string
+  resource: ResourceType
+  quantity: number
+  price: number
+  fee: number
+  turn: number
+  timestamp: string
+}
+
+export interface PriceHistoryEntry {
+  resource: ResourceType
+  turn: number
+  price: number
+  volume: number
+}
+
+export interface ResourceStats {
+  resource: ResourceType
+  total_mined: number
+  total_used: number
+  total_traded: number
+  reserve: number
+}
+
+export interface AuctionItem {
+  item_type: AuctionItemType
+  item_id: string
+  item_name: string
+  item_data?: any
+}
+
+export interface Auction {
+  id: string
+  game_id: string
+  seller_id: string
+  item: AuctionItem
+  starting_price: number
+  current_bid: number
+  current_bidder?: string
+  start_turn: number
+  duration: number
+  status: AuctionStatus
+  created_at: string
+}
+
+export interface AuctionBid {
+  id: string
+  auction_id: string
+  player_id: string
+  amount: number
+  turn: number
+  timestamp: string
+}
+
+export interface MarketData {
+  current_prices: Record<ResourceType, number>
+  price_history: PriceHistoryEntry[]
+  orders: MarketOrder[]
+  auctions: Auction[]
+  resource_stats: Record<string, ResourceStats>
+}
+
+export const ORDER_TYPE_NAMES: Record<OrderType, string> = {
+  buy: '买单',
+  sell: '卖单'
+}
+
+export const ORDER_STATUS_NAMES: Record<OrderStatus, string> = {
+  active: '挂单中',
+  partial: '部分成交',
+  filled: '已成交',
+  cancelled: '已取消'
+}
+
+export const AUCTION_STATUS_NAMES: Record<AuctionStatus, string> = {
+  active: '进行中',
+  finished: '已成交',
+  expired: '已流拍'
+}
+
+export const AUCTION_ITEM_TYPE_NAMES: Record<AuctionItemType, string> = {
+  tech: '科技',
+  ship: '船只',
+  blueprint: '蓝图'
 }
 
 export const TREATY_TYPE_NAMES: Record<TreatyType, string> = {

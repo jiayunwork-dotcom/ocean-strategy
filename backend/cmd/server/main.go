@@ -43,6 +43,13 @@ func main() {
 	api.Post("/games/:id/diplomacy/respond", handlers.RespondToProposal)
 	api.Post("/games/:id/diplomacy/break", handlers.BreakTreaty)
 
+	api.Post("/games/:id/market/orders", handlers.PlaceOrder)
+	api.Post("/games/:id/market/orders/cancel", handlers.CancelOrder)
+	api.Get("/games/:id/market", handlers.GetMarketData)
+
+	api.Post("/games/:id/auctions", handlers.CreateAuction)
+	api.Post("/games/:id/auctions/bid", handlers.PlaceBid)
+
 	api.Get("/technologies", handlers.GetTechnologies)
 
 	app.Use("/ws", func(c *fiber.Ctx) error {

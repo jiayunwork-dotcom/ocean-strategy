@@ -242,18 +242,27 @@ type Game struct {
 }
 
 type GameState struct {
-	Game         *Game                     `json:"game"`
-	Hexes        map[string]*Hex           `json:"hexes"`
-	Players      map[uuid.UUID]*Player     `json:"players"`
-	Ships        []*Ship                   `json:"ships"`
-	Facilities   []*Facility               `json:"facilities"`
-	Techs        []*PlayerTech             `json:"techs"`
-	Relations    []*DiplomaticRelation     `json:"relations"`
-	Proposals    []*DiplomaticProposal     `json:"proposals"`
-	Cooldowns    []*ReputationCooldown     `json:"cooldowns"`
-	BattleLogs   []*BattleLog              `json:"battle_logs"`
-	GameLogs     []*GameLogEntry           `json:"game_logs"`
-	Typhoons     []*Typhoon                `json:"typhoons"`
+	Game           *Game                     `json:"game"`
+	Hexes          map[string]*Hex           `json:"hexes"`
+	Players        map[uuid.UUID]*Player     `json:"players"`
+	Ships          []*Ship                   `json:"ships"`
+	Facilities     []*Facility               `json:"facilities"`
+	Techs          []*PlayerTech             `json:"techs"`
+	Relations      []*DiplomaticRelation     `json:"relations"`
+	Proposals      []*DiplomaticProposal     `json:"proposals"`
+	Cooldowns      []*ReputationCooldown     `json:"cooldowns"`
+	BattleLogs     []*BattleLog              `json:"battle_logs"`
+	GameLogs       []*GameLogEntry           `json:"game_logs"`
+	Typhoons       []*Typhoon                `json:"typhoons"`
+	MarketOrders   []*MarketOrder            `json:"market_orders"`
+	TradeRecords   []*TradeRecord            `json:"trade_records"`
+	PriceHistory   []*PriceHistoryEntry      `json:"price_history"`
+	ResourceStats  map[ResourceType]*ResourceStats `json:"resource_stats"`
+	Auctions       []*Auction                `json:"auctions"`
+	AuctionBids    []*AuctionBid             `json:"auction_bids"`
+	CurrentPrices  map[ResourceType]int      `json:"current_prices"`
+	FrozenShips    map[uuid.UUID]uuid.UUID   `json:"frozen_ships"`
+	FrozenTechs    map[string]uuid.UUID      `json:"frozen_techs"`
 }
 
 type Typhoon struct {
@@ -270,4 +279,110 @@ type MarketPrice struct {
 	Resource ResourceType `json:"resource"`
 	Price    int          `json:"price"`
 	Demand   int          `json:"demand"`
+}
+
+type OrderType string
+
+const (
+	OrderTypeBuy  OrderType = "buy"
+	OrderTypeSell OrderType = "sell"
+)
+
+type OrderStatus string
+
+const (
+	OrderStatusActive   OrderStatus = "active"
+	OrderStatusPartial  OrderStatus = "partial"
+	OrderStatusFilled   OrderStatus = "filled"
+	OrderStatusCancelled OrderStatus = "cancelled"
+)
+
+type MarketOrder struct {
+	ID            uuid.UUID    `json:"id"`
+	GameID        uuid.UUID    `json:"game_id"`
+	PlayerID      uuid.UUID    `json:"player_id"`
+	OrderType     OrderType    `json:"order_type"`
+	Resource      ResourceType `json:"resource"`
+	Quantity      int          `json:"quantity"`
+	RemainingQty  int          `json:"remaining_qty"`
+	Price         int          `json:"price"`
+	Status        OrderStatus  `json:"status"`
+	CreatedTurn   int          `json:"created_turn"`
+	CreatedAt     time.Time    `json:"created_at"`
+}
+
+type TradeRecord struct {
+	ID           uuid.UUID    `json:"id"`
+	GameID       uuid.UUID    `json:"game_id"`
+	BuyOrderID   uuid.UUID    `json:"buy_order_id"`
+	SellOrderID  uuid.UUID    `json:"sell_order_id"`
+	BuyerID      uuid.UUID    `json:"buyer_id"`
+	SellerID     uuid.UUID    `json:"seller_id"`
+	Resource     ResourceType `json:"resource"`
+	Quantity     int          `json:"quantity"`
+	Price        int          `json:"price"`
+	Fee          int          `json:"fee"`
+	Turn         int          `json:"turn"`
+	Timestamp    time.Time    `json:"timestamp"`
+}
+
+type PriceHistoryEntry struct {
+	Resource ResourceType `json:"resource"`
+	Turn     int          `json:"turn"`
+	Price    int          `json:"price"`
+	Volume   int          `json:"volume"`
+}
+
+type ResourceStats struct {
+	Resource    ResourceType `json:"resource"`
+	TotalMined  int          `json:"total_mined"`
+	TotalUsed   int          `json:"total_used"`
+	TotalTraded int          `json:"total_traded"`
+	Reserve     int          `json:"reserve"`
+}
+
+type AuctionItemType string
+
+const (
+	AuctionItemTech     AuctionItemType = "tech"
+	AuctionItemShip     AuctionItemType = "ship"
+	AuctionItemBlueprint AuctionItemType = "blueprint"
+)
+
+type AuctionStatus string
+
+const (
+	AuctionStatusActive   AuctionStatus = "active"
+	AuctionStatusFinished AuctionStatus = "finished"
+	AuctionStatusExpired  AuctionStatus = "expired"
+)
+
+type AuctionItem struct {
+	ItemType   AuctionItemType `json:"item_type"`
+	ItemID     string          `json:"item_id"`
+	ItemName   string          `json:"item_name"`
+	ItemData   interface{}     `json:"item_data,omitempty"`
+}
+
+type Auction struct {
+	ID            uuid.UUID     `json:"id"`
+	GameID        uuid.UUID     `json:"game_id"`
+	SellerID      uuid.UUID     `json:"seller_id"`
+	Item          AuctionItem   `json:"item"`
+	StartingPrice int           `json:"starting_price"`
+	CurrentBid    int           `json:"current_bid"`
+	CurrentBidder *uuid.UUID    `json:"current_bidder,omitempty"`
+	StartTurn     int           `json:"start_turn"`
+	Duration      int           `json:"duration"`
+	Status        AuctionStatus `json:"status"`
+	CreatedAt     time.Time     `json:"created_at"`
+}
+
+type AuctionBid struct {
+	ID         uuid.UUID `json:"id"`
+	AuctionID  uuid.UUID `json:"auction_id"`
+	PlayerID   uuid.UUID `json:"player_id"`
+	Amount     int       `json:"amount"`
+	Turn       int       `json:"turn"`
+	Timestamp  time.Time `json:"timestamp"`
 }

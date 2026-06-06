@@ -44,7 +44,11 @@ export function useGameWebSocket(gameId: string, playerId: string) {
             msg.type === 'treaty_broken' ||
             msg.type === 'battle_occurred' ||
             msg.type === 'ship_moved' ||
-            msg.type === 'player_joined') {
+            msg.type === 'player_joined' ||
+            msg.type === 'order_placed' ||
+            msg.type === 'order_cancelled' ||
+            msg.type === 'auction_created' ||
+            msg.type === 'bid_placed') {
           refreshGameState()
         }
       } catch (e) {

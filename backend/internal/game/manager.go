@@ -176,6 +176,7 @@ func (gm *GameManager) StartGame(gameID uuid.UUID) error {
 	}
 
 	instance.Engine.InitDiplomaticRelations()
+	instance.Engine.InitMarket()
 
 	return nil
 }
