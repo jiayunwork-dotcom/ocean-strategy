@@ -536,12 +536,58 @@ func (ge *GameEngine) Explore(shipID uuid.UUID) bool {
 	hexKey := HexKey(ship.HexQ, ship.HexR)
 	hex := ge.state.Hexes[hexKey]
 
+	player := ge.state.Players[ship.OwnerID]
+
+	playerAdded := false
+	if player != nil {
+		found := false
+		for _, hk := range player.DiscoveredHexes {
+			if hk == hexKey {
+				found = true
+				break
+			}
+		}
+		if !found {
+			player.DiscoveredHexes = append(player.DiscoveredHexes, hexKey)
+			playerAdded = true
+		}
+	}
+
+	if playerAdded {
+		for _, rel := range ge.state.Relations {
+			if rel.Status == models.RelationAlliance {
+				var allyID uuid.UUID
+				if rel.Player1ID == ship.OwnerID {
+					allyID = rel.Player2ID
+				} else if rel.Player2ID == ship.OwnerID {
+					allyID = rel.Player1ID
+				} else {
+					continue
+				}
+
+				ally := ge.state.Players[allyID]
+				if ally != nil {
+					found := false
+					for _, hk := range ally.DiscoveredHexes {
+						if hk == hexKey {
+							found = true
+							break
+						}
+					}
+					if !found {
+						ally.DiscoveredHexes = append(ally.DiscoveredHexes, hexKey)
+					}
+				}
+			}
+		}
+	}
+
 	if !hex.Discovered {
 		hex.Discovered = true
 		return true
 	}
 
-	return false
+	return playerAdded
 }
 
 func (ge *GameEngine) StartResearch(playerID uuid.UUID, techID string) bool {
@@ -759,40 +805,31 @@ func (ge *GameEngine) RespondToProposal(proposalID uuid.UUID, acceptorPlayerID u
 }
 
 func (ge *GameEngine) shareAllianceVision(player1ID, player2ID uuid.UUID) {
-	player1Discovered := make(map[string]bool)
-	player2Discovered := make(map[string]bool)
+	player1 := ge.state.Players[player1ID]
+	player2 := ge.state.Players[player2ID]
 
-	for key, hex := range ge.state.Hexes {
-		if hex.Discovered {
-			for _, ship := range ge.state.Ships {
-				if ship.OwnerID == player1ID {
-					player1Discovered[key] = true
-				}
-				if ship.OwnerID == player2ID {
-					player2Discovered[key] = true
-				}
-			}
-			if hex.OwnerID != nil {
-				if *hex.OwnerID == player1ID {
-					player1Discovered[key] = true
-				}
-				if *hex.OwnerID == player2ID {
-					player2Discovered[key] = true
-				}
-			}
-		}
+	if player1 == nil || player2 == nil {
+		return
 	}
 
-	for key := range player1Discovered {
+	combinedDiscovered := make(map[string]bool)
+	for _, key := range player1.DiscoveredHexes {
+		combinedDiscovered[key] = true
+	}
+	for _, key := range player2.DiscoveredHexes {
+		combinedDiscovered[key] = true
+	}
+
+	allDiscovered := make([]string, 0, len(combinedDiscovered))
+	for key := range combinedDiscovered {
+		allDiscovered = append(allDiscovered, key)
 		if hex, ok := ge.state.Hexes[key]; ok {
 			hex.Discovered = true
 		}
 	}
-	for key := range player2Discovered {
-		if hex, ok := ge.state.Hexes[key]; ok {
-			hex.Discovered = true
-		}
-	}
+
+	player1.DiscoveredHexes = allDiscovered
+	player2.DiscoveredHexes = allDiscovered
 }
 
 func (ge *GameEngine) BreakTreaty(playerID, otherPlayerID uuid.UUID) (bool, string) {

@@ -64,14 +64,18 @@ func (gm *GameManager) CreateGame(name string, maxTurns int, mapRadius int, winC
 	hexes := generator.Generate()
 
 	state := &models.GameState{
-		Game:       game,
-		Hexes:      hexes,
-		Players:    make(map[uuid.UUID]*models.Player),
-		Ships:      make([]*models.Ship, 0),
-		Facilities: make([]*models.Facility, 0),
-		Techs:      make([]*models.PlayerTech, 0),
-		Relations:  make([]*models.DiplomaticRelation, 0),
-		Typhoons:   make([]*models.Typhoon, 0),
+		Game:        game,
+		Hexes:       hexes,
+		Players:     make(map[uuid.UUID]*models.Player),
+		Ships:       make([]*models.Ship, 0),
+		Facilities:  make([]*models.Facility, 0),
+		Techs:       make([]*models.PlayerTech, 0),
+		Relations:   make([]*models.DiplomaticRelation, 0),
+		Proposals:   make([]*models.DiplomaticProposal, 0),
+		Cooldowns:   make([]*models.ReputationCooldown, 0),
+		BattleLogs:  make([]*models.BattleLog, 0),
+		GameLogs:    make([]*models.GameLogEntry, 0),
+		Typhoons:    make([]*models.Typhoon, 0),
 	}
 
 	engine := NewGameEngine(state, seed)
@@ -161,8 +165,14 @@ func (gm *GameManager) StartGame(gameID uuid.UUID) error {
 
 	instance.Engine.GetState().Game.Status = models.GamePlaying
 
-	for _, player := range instance.Engine.GetState().Players {
+	state := instance.Engine.GetState()
+	for _, player := range state.Players {
 		instance.Engine.BuildFacility(player.ID, player.StartHexQ, player.StartHexR, models.FacilityPort)
+		hexKey := HexKey(player.StartHexQ, player.StartHexR)
+		player.DiscoveredHexes = []string{hexKey}
+		if hex, ok := state.Hexes[hexKey]; ok {
+			hex.Discovered = true
+		}
 	}
 
 	instance.Engine.InitDiplomaticRelations()

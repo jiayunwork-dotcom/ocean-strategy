@@ -19,6 +19,7 @@ export interface Player {
   start_hex_q: number
   start_hex_r: number
   is_ai: boolean
+  discovered_hexes: string[]
   created_at: string
   updated_at: string
 }

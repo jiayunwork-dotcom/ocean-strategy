@@ -7,17 +7,18 @@ import (
 )
 
 type Player struct {
-	ID           uuid.UUID `json:"id" gorm:"type:uuid;primaryKey"`
-	GameID       uuid.UUID `json:"game_id" gorm:"type:uuid;index"`
-	Name         string    `json:"name"`
-	Color        string    `json:"color"`
-	Money        int       `json:"money"`
-	Reputation   int       `json:"reputation"`
-	StartHexQ    int       `json:"start_hex_q"`
-	StartHexR    int       `json:"start_hex_r"`
-	IsAI         bool      `json:"is_ai"`
-	CreatedAt    time.Time `json:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at"`
+	ID              uuid.UUID   `json:"id" gorm:"type:uuid;primaryKey"`
+	GameID          uuid.UUID   `json:"game_id" gorm:"type:uuid;index"`
+	Name            string      `json:"name"`
+	Color           string      `json:"color"`
+	Money           int         `json:"money"`
+	Reputation      int         `json:"reputation"`
+	StartHexQ       int         `json:"start_hex_q"`
+	StartHexR       int         `json:"start_hex_r"`
+	IsAI            bool        `json:"is_ai"`
+	DiscoveredHexes []string    `json:"discovered_hexes"`
+	CreatedAt       time.Time   `json:"created_at"`
+	UpdatedAt       time.Time   `json:"updated_at"`
 }
 
 type ResourceType string
