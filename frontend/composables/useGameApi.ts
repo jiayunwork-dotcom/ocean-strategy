@@ -81,6 +81,27 @@ export function useGameApi() {
     return res
   }
 
+  const proposeTreaty = async (gameId: string, fromPlayerId: string, toPlayerId: string, treatyType: string): Promise<void> => {
+    await $fetch(`${baseUrl}/games/${gameId}/diplomacy/propose`, {
+      method: 'POST',
+      body: { from_player_id: fromPlayerId, to_player_id: toPlayerId, treaty_type: treatyType }
+    })
+  }
+
+  const respondToProposal = async (gameId: string, proposalId: string, playerId: string, accept: boolean): Promise<void> => {
+    await $fetch(`${baseUrl}/games/${gameId}/diplomacy/respond`, {
+      method: 'POST',
+      body: { proposal_id: proposalId, player_id: playerId, accept }
+    })
+  }
+
+  const breakTreaty = async (gameId: string, playerId: string, otherPlayerId: string): Promise<void> => {
+    await $fetch(`${baseUrl}/games/${gameId}/diplomacy/break`, {
+      method: 'POST',
+      body: { player_id: playerId, other_player_id: otherPlayerId }
+    })
+  }
+
   return {
     listGames,
     createGame,
@@ -93,6 +114,9 @@ export function useGameApi() {
     moveShip,
     explore,
     startResearch,
-    getTechnologies
+    getTechnologies,
+    proposeTreaty,
+    respondToProposal,
+    breakTreaty
   }
 }

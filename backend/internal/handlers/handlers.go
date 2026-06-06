@@ -51,6 +51,23 @@ type ResearchRequest struct {
 	TechID   string    `json:"tech_id"`
 }
 
+type ProposeTreatyRequest struct {
+	FromPlayerID uuid.UUID         `json:"from_player_id"`
+	ToPlayerID   uuid.UUID         `json:"to_player_id"`
+	TreatyType   models.TreatyType `json:"treaty_type"`
+}
+
+type RespondProposalRequest struct {
+	ProposalID uuid.UUID `json:"proposal_id"`
+	PlayerID   uuid.UUID `json:"player_id"`
+	Accept     bool      `json:"accept"`
+}
+
+type BreakTreatyRequest struct {
+	PlayerID      uuid.UUID `json:"player_id"`
+	OtherPlayerID uuid.UUID `json:"other_player_id"`
+}
+
 func CreateGame(c *fiber.Ctx) error {
 	var req CreateGameRequest
 	if err := c.BodyParser(&req); err != nil {
@@ -238,7 +255,8 @@ func MoveShip(c *fiber.Ctx) error {
 		return c.Status(http.StatusNotFound).JSON(fiber.Map{"error": err.Error()})
 	}
 
-	if !instance.Engine.MoveShip(req.ShipID, req.ToQ, req.ToR) {
+	success, battleLog := instance.Engine.MoveShip(req.ShipID, req.ToQ, req.ToR)
+	if !success {
 		return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": "could not move ship"})
 	}
 
@@ -249,7 +267,11 @@ func MoveShip(c *fiber.Ctx) error {
 		"to_r":    req.ToR,
 	})
 
-	return c.JSON(fiber.Map{"status": "success"})
+	if battleLog != nil {
+		hub.BroadcastToGame(gameID, "battle_occurred", battleLog)
+	}
+
+	return c.JSON(fiber.Map{"status": "success", "battle_log": battleLog})
 }
 
 func Explore(c *fiber.Ctx) error {
@@ -313,4 +335,99 @@ func StartResearch(c *fiber.Ctx) error {
 
 func GetTechnologies(c *fiber.Ctx) error {
 	return c.JSON(game.Technologies)
+}
+
+func ProposeTreaty(c *fiber.Ctx) error {
+	gameID, err := uuid.Parse(c.Params("id"))
+	if err != nil {
+		return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": "invalid game id"})
+	}
+
+	var req ProposeTreatyRequest
+	if err := c.BodyParser(&req); err != nil {
+		return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	gm := game.GetGameManager()
+	instance, err := gm.GetGame(gameID)
+	if err != nil {
+		return c.Status(http.StatusNotFound).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	success, msg := instance.Engine.ProposeTreaty(req.FromPlayerID, req.ToPlayerID, req.TreatyType)
+	if !success {
+		return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": msg})
+	}
+
+	hub := ws.GetHub()
+	hub.BroadcastToGame(gameID, "treaty_proposed", fiber.Map{
+		"from_player_id": req.FromPlayerID,
+		"to_player_id":   req.ToPlayerID,
+		"treaty_type":    req.TreatyType,
+	})
+
+	return c.JSON(fiber.Map{"status": "success"})
+}
+
+func RespondToProposal(c *fiber.Ctx) error {
+	gameID, err := uuid.Parse(c.Params("id"))
+	if err != nil {
+		return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": "invalid game id"})
+	}
+
+	var req RespondProposalRequest
+	if err := c.BodyParser(&req); err != nil {
+		return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	gm := game.GetGameManager()
+	instance, err := gm.GetGame(gameID)
+	if err != nil {
+		return c.Status(http.StatusNotFound).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	success, msg := instance.Engine.RespondToProposal(req.ProposalID, req.PlayerID, req.Accept)
+	if !success {
+		return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": msg})
+	}
+
+	hub := ws.GetHub()
+	hub.BroadcastToGame(gameID, "proposal_responded", fiber.Map{
+		"proposal_id": req.ProposalID,
+		"player_id":   req.PlayerID,
+		"accept":      req.Accept,
+	})
+
+	return c.JSON(fiber.Map{"status": "success"})
+}
+
+func BreakTreaty(c *fiber.Ctx) error {
+	gameID, err := uuid.Parse(c.Params("id"))
+	if err != nil {
+		return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": "invalid game id"})
+	}
+
+	var req BreakTreatyRequest
+	if err := c.BodyParser(&req); err != nil {
+		return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	gm := game.GetGameManager()
+	instance, err := gm.GetGame(gameID)
+	if err != nil {
+		return c.Status(http.StatusNotFound).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	success, msg := instance.Engine.BreakTreaty(req.PlayerID, req.OtherPlayerID)
+	if !success {
+		return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": msg})
+	}
+
+	hub := ws.GetHub()
+	hub.BroadcastToGame(gameID, "treaty_broken", fiber.Map{
+		"player_id":       req.PlayerID,
+		"other_player_id": req.OtherPlayerID,
+	})
+
+	return c.JSON(fiber.Map{"status": "success"})
 }

@@ -2,6 +2,8 @@ package game
 
 import (
 	"math/rand"
+	"strconv"
+	"time"
 
 	"github.com/google/uuid"
 	"ocean-strategy/internal/models"
@@ -218,6 +220,7 @@ func (ge *GameEngine) runSettlementPhase() {
 	ge.progressFacilityConstruction()
 	ge.progressResearch()
 	ge.resetShipMovePoints()
+	ge.ProcessCooldowns()
 }
 
 func (ge *GameEngine) progressFacilityConstruction() {
@@ -457,7 +460,7 @@ func (ge *GameEngine) getShipDefense(st models.ShipType) int {
 	return defense[st]
 }
 
-func (ge *GameEngine) MoveShip(shipID uuid.UUID, toQ, toR int) bool {
+func (ge *GameEngine) MoveShip(shipID uuid.UUID, toQ, toR int) (bool, *models.BattleLog) {
 	var ship *models.Ship
 	for _, s := range ge.state.Ships {
 		if s.ID == shipID {
@@ -466,17 +469,17 @@ func (ge *GameEngine) MoveShip(shipID uuid.UUID, toQ, toR int) bool {
 		}
 	}
 	if ship == nil {
-		return false
+		return false, nil
 	}
 
 	distance := HexDistance(ship.HexQ, ship.HexR, toQ, toR)
 	if distance > ship.MovePoints {
-		return false
+		return false, nil
 	}
 
 	fuelCost := ge.calculateFuelCost(ship.HexQ, ship.HexR, toQ, toR)
 	if ship.Fuel < fuelCost {
-		return false
+		return false, nil
 	}
 
 	ship.HexQ = toQ
@@ -484,7 +487,14 @@ func (ge *GameEngine) MoveShip(shipID uuid.UUID, toQ, toR int) bool {
 	ship.MovePoints -= distance
 	ship.Fuel -= fuelCost
 
-	return true
+	var battleLog *models.BattleLog
+	if ship.Type == models.ShipEscort {
+		if log, triggered := ge.CheckAndTriggerBattle(shipID, toQ, toR); triggered {
+			battleLog = log
+		}
+	}
+
+	return true, battleLog
 }
 
 func (ge *GameEngine) calculateFuelCost(fromQ, fromR, toQ, toR int) int {
@@ -584,6 +594,358 @@ func GetTechnology(id string) *models.Technology {
 		}
 	}
 	return nil
+}
+
+func (ge *GameEngine) InitDiplomaticRelations() {
+	playerIDs := make([]uuid.UUID, 0, len(ge.state.Players))
+	for id := range ge.state.Players {
+		playerIDs = append(playerIDs, id)
+	}
+
+	for i := 0; i < len(playerIDs); i++ {
+		for j := i + 1; j < len(playerIDs); j++ {
+			relation := &models.DiplomaticRelation{
+				GameID:      ge.state.Game.ID,
+				Player1ID:   playerIDs[i],
+				Player2ID:   playerIDs[j],
+				Status:      models.RelationNeutral,
+				HasNAP:      false,
+				HasAlliance: false,
+				AtWar:       false,
+			}
+			ge.state.Relations = append(ge.state.Relations, relation)
+		}
+	}
+}
+
+func (ge *GameEngine) GetRelation(player1ID, player2ID uuid.UUID) *models.DiplomaticRelation {
+	for _, rel := range ge.state.Relations {
+		if (rel.Player1ID == player1ID && rel.Player2ID == player2ID) ||
+			(rel.Player1ID == player2ID && rel.Player2ID == player1ID) {
+			return rel
+		}
+	}
+	return nil
+}
+
+func (ge *GameEngine) HasCooldown(playerID uuid.UUID) bool {
+	for _, cd := range ge.state.Cooldowns {
+		if cd.PlayerID == playerID && cd.TurnsLeft > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func (ge *GameEngine) ProposeTreaty(fromPlayerID, toPlayerID uuid.UUID, treatyType models.TreatyType) (bool, string) {
+	if fromPlayerID == toPlayerID {
+		return false, "不能向自己提议条约"
+	}
+
+	fromPlayer := ge.state.Players[fromPlayerID]
+	toPlayer := ge.state.Players[toPlayerID]
+	if fromPlayer == nil || toPlayer == nil {
+		return false, "玩家不存在"
+	}
+
+	if ge.HasCooldown(fromPlayerID) {
+		return false, "该玩家正处于声誉冷却期，无法发起条约提议"
+	}
+
+	relation := ge.GetRelation(fromPlayerID, toPlayerID)
+	if relation == nil {
+		return false, "外交关系不存在"
+	}
+
+	for _, p := range ge.state.Proposals {
+		if p.FromPlayerID == fromPlayerID && p.ToPlayerID == toPlayerID && p.Status == "pending" {
+			return false, "已有待处理的提议"
+		}
+		if p.FromPlayerID == toPlayerID && p.ToPlayerID == fromPlayerID && p.Status == "pending" {
+			return false, "对方已向你发起提议，请先回应"
+		}
+	}
+
+	switch treatyType {
+	case models.TreatyNAP:
+		if relation.Status != models.RelationNeutral {
+			return false, "只能向中立关系的玩家提议互不侵犯条约"
+		}
+	case models.TreatyAlliance:
+		if relation.Status != models.RelationNAP {
+			return false, "只能向互不侵犯关系的玩家提议军事同盟"
+		}
+	default:
+		return false, "未知条约类型"
+	}
+
+	proposal := &models.DiplomaticProposal{
+		ID:           uuid.New(),
+		GameID:       ge.state.Game.ID,
+		FromPlayerID: fromPlayerID,
+		ToPlayerID:   toPlayerID,
+		TreatyType:   treatyType,
+		Status:       "pending",
+		CreatedAt:    ge.state.Game.CurrentTurn,
+	}
+	ge.state.Proposals = append(ge.state.Proposals, proposal)
+
+	ge.addGameLog("diplomacy", fromPlayer.Name+" 向 "+toPlayer.Name+" 发起了"+getTreatyName(treatyType)+"提议", &fromPlayerID)
+
+	return true, ""
+}
+
+func getTreatyName(treatyType models.TreatyType) string {
+	switch treatyType {
+	case models.TreatyNAP:
+		return "互不侵犯条约"
+	case models.TreatyAlliance:
+		return "军事同盟"
+	default:
+		return "条约"
+	}
+}
+
+func (ge *GameEngine) RespondToProposal(proposalID uuid.UUID, acceptorPlayerID uuid.UUID, accept bool) (bool, string) {
+	var proposal *models.DiplomaticProposal
+	for _, p := range ge.state.Proposals {
+		if p.ID == proposalID {
+			proposal = p
+			break
+		}
+	}
+
+	if proposal == nil {
+		return false, "提议不存在"
+	}
+
+	if proposal.ToPlayerID != acceptorPlayerID {
+		return false, "你不是该提议的接收方"
+	}
+
+	if proposal.Status != "pending" {
+		return false, "该提议已被处理"
+	}
+
+	fromPlayer := ge.state.Players[proposal.FromPlayerID]
+	toPlayer := ge.state.Players[proposal.ToPlayerID]
+
+	if accept {
+		if ge.HasCooldown(proposal.FromPlayerID) {
+			proposal.Status = "rejected"
+			return false, "对方正处于声誉冷却期，自动拒绝"
+		}
+
+		relation := ge.GetRelation(proposal.FromPlayerID, proposal.ToPlayerID)
+		if relation != nil {
+			switch proposal.TreatyType {
+			case models.TreatyNAP:
+				relation.Status = models.RelationNAP
+				relation.HasNAP = true
+			case models.TreatyAlliance:
+				relation.Status = models.RelationAlliance
+				relation.HasAlliance = true
+				ge.shareAllianceVision(proposal.FromPlayerID, proposal.ToPlayerID)
+			}
+		}
+		proposal.Status = "accepted"
+		ge.addGameLog("diplomacy", toPlayer.Name+" 接受了 "+fromPlayer.Name+" 的"+getTreatyName(proposal.TreatyType), &acceptorPlayerID)
+	} else {
+		proposal.Status = "rejected"
+		ge.addGameLog("diplomacy", toPlayer.Name+" 拒绝了 "+fromPlayer.Name+" 的"+getTreatyName(proposal.TreatyType), &acceptorPlayerID)
+	}
+
+	return true, ""
+}
+
+func (ge *GameEngine) shareAllianceVision(player1ID, player2ID uuid.UUID) {
+	player1Discovered := make(map[string]bool)
+	player2Discovered := make(map[string]bool)
+
+	for key, hex := range ge.state.Hexes {
+		if hex.Discovered {
+			for _, ship := range ge.state.Ships {
+				if ship.OwnerID == player1ID {
+					player1Discovered[key] = true
+				}
+				if ship.OwnerID == player2ID {
+					player2Discovered[key] = true
+				}
+			}
+			if hex.OwnerID != nil {
+				if *hex.OwnerID == player1ID {
+					player1Discovered[key] = true
+				}
+				if *hex.OwnerID == player2ID {
+					player2Discovered[key] = true
+				}
+			}
+		}
+	}
+
+	for key := range player1Discovered {
+		if hex, ok := ge.state.Hexes[key]; ok {
+			hex.Discovered = true
+		}
+	}
+	for key := range player2Discovered {
+		if hex, ok := ge.state.Hexes[key]; ok {
+			hex.Discovered = true
+		}
+	}
+}
+
+func (ge *GameEngine) BreakTreaty(playerID, otherPlayerID uuid.UUID) (bool, string) {
+	relation := ge.GetRelation(playerID, otherPlayerID)
+	if relation == nil {
+		return false, "外交关系不存在"
+	}
+
+	if relation.Status == models.RelationNeutral || relation.Status == models.RelationHostile {
+		return false, "当前没有可撕毁的条约"
+	}
+
+	player := ge.state.Players[playerID]
+	otherPlayer := ge.state.Players[otherPlayerID]
+
+	relation.Status = models.RelationHostile
+	relation.HasNAP = false
+	relation.HasAlliance = false
+	relation.AtWar = true
+
+	player.Reputation = max(0, player.Reputation-20)
+
+	cooldown := &models.ReputationCooldown{
+		PlayerID:  playerID,
+		GameID:    ge.state.Game.ID,
+		TurnsLeft: 3,
+		Reason:    "撕毁条约",
+	}
+	ge.state.Cooldowns = append(ge.state.Cooldowns, cooldown)
+
+	ge.addGameLog("diplomacy", player.Name+" 撕毁了与 "+otherPlayer.Name+" 的条约，双方进入敌对状态", &playerID)
+
+	return true, ""
+}
+
+func (ge *GameEngine) ProcessCooldowns() {
+	remaining := make([]*models.ReputationCooldown, 0)
+	for _, cd := range ge.state.Cooldowns {
+		cd.TurnsLeft--
+		if cd.TurnsLeft > 0 {
+			remaining = append(remaining, cd)
+		}
+	}
+	ge.state.Cooldowns = remaining
+}
+
+func (ge *GameEngine) CheckAndTriggerBattle(shipID uuid.UUID, toQ, toR int) (*models.BattleLog, bool) {
+	var movingShip *models.Ship
+	for _, s := range ge.state.Ships {
+		if s.ID == shipID {
+			movingShip = s
+			break
+		}
+	}
+	if movingShip == nil || movingShip.Type != models.ShipEscort {
+		return nil, false
+	}
+
+	hexKey := HexKey(toQ, toR)
+	hex, ok := ge.state.Hexes[hexKey]
+	if !ok || hex.OwnerID == nil {
+		return nil, false
+	}
+
+	ownerID := *hex.OwnerID
+	if ownerID == movingShip.OwnerID {
+		return nil, false
+	}
+
+	relation := ge.GetRelation(movingShip.OwnerID, ownerID)
+	if relation == nil || relation.Status != models.RelationHostile {
+		return nil, false
+	}
+
+	var defenderShip *models.Ship
+	for _, s := range ge.state.Ships {
+		if s.OwnerID == ownerID && s.HexQ == toQ && s.HexR == toR && s.Type == models.ShipEscort {
+			defenderShip = s
+			break
+		}
+	}
+
+	if defenderShip == nil {
+		return nil, false
+	}
+
+	return ge.resolveBattle(movingShip, defenderShip, toQ, toR), true
+}
+
+func (ge *GameEngine) resolveBattle(attacker, defender *models.Ship, q, r int) *models.BattleLog {
+	attackerDamage := max(1, attacker.Attack-defender.Defense/2)
+	defenderDamage := max(1, defender.Attack-attacker.Defense/2)
+
+	defender.Health -= attackerDamage
+	attacker.Health -= defenderDamage
+
+	attackerSunk := attacker.Health <= 0
+	defenderSunk := defender.Health <= 0
+
+	battleLog := &models.BattleLog{
+		ID:             uuid.New(),
+		GameID:         ge.state.Game.ID,
+		Turn:           ge.state.Game.CurrentTurn,
+		AttackerID:     attacker.OwnerID,
+		DefenderID:     defender.OwnerID,
+		AttackerShipID: attacker.ID,
+		DefenderShipID: defender.ID,
+		HexQ:           q,
+		HexR:           r,
+		AttackerDamage: attackerDamage,
+		DefenderDamage: defenderDamage,
+		AttackerSunk:   attackerSunk,
+		DefenderSunk:   defenderSunk,
+		Timestamp:      time.Now(),
+	}
+	ge.state.BattleLogs = append(ge.state.BattleLogs, battleLog)
+
+	attackerPlayer := ge.state.Players[attacker.OwnerID]
+	defenderPlayer := ge.state.Players[defender.OwnerID]
+
+	logMsg := "战斗：" + attackerPlayer.Name + " 的护卫舰与 " + defenderPlayer.Name + " 的护卫舰在海域(" + strconv.Itoa(q) + "," + strconv.Itoa(r) + ")交战"
+	if attackerSunk {
+		logMsg += "，攻击方舰船被击沉"
+	}
+	if defenderSunk {
+		logMsg += "，防守方舰船被击沉"
+	}
+	ge.addGameLog("battle", logMsg, nil)
+
+	return battleLog
+}
+
+func (ge *GameEngine) addGameLog(logType, message string, playerID *uuid.UUID) {
+	entry := &models.GameLogEntry{
+		ID:        uuid.New(),
+		GameID:    ge.state.Game.ID,
+		Turn:      ge.state.Game.CurrentTurn,
+		Message:   message,
+		Type:      logType,
+		PlayerID:  playerID,
+		Timestamp: time.Now(),
+	}
+	ge.state.GameLogs = append(ge.state.GameLogs, entry)
+}
+
+func (ge *GameEngine) GetPendingProposalsForPlayer(playerID uuid.UUID) []*models.DiplomaticProposal {
+	result := make([]*models.DiplomaticProposal, 0)
+	for _, p := range ge.state.Proposals {
+		if p.ToPlayerID == playerID && p.Status == "pending" {
+			result = append(result, p)
+		}
+	}
+	return result
 }
 
 var Technologies = []*models.Technology{

@@ -39,6 +39,10 @@ func main() {
 	api.Post("/games/:id/ships/explore", handlers.Explore)
 	api.Post("/games/:id/research", handlers.StartResearch)
 
+	api.Post("/games/:id/diplomacy/propose", handlers.ProposeTreaty)
+	api.Post("/games/:id/diplomacy/respond", handlers.RespondToProposal)
+	api.Post("/games/:id/diplomacy/break", handlers.BreakTreaty)
+
 	api.Get("/technologies", handlers.GetTechnologies)
 
 	app.Use("/ws", func(c *fiber.Ctx) error {

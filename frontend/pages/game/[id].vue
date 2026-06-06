@@ -47,6 +47,10 @@ onMounted(async () => {
   try {
     const state = await gameApi.getGame(gameId)
     gameStore.setGameState(state)
+    
+    if (playerId) {
+      useGameWebSocket(gameId, playerId)
+    }
   } catch (e) {
     console.error('Failed to load game:', e)
   }

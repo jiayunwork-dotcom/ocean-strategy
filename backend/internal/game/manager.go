@@ -165,6 +165,8 @@ func (gm *GameManager) StartGame(gameID uuid.UUID) error {
 		instance.Engine.BuildFacility(player.ID, player.StartHexQ, player.StartHexR, models.FacilityPort)
 	}
 
+	instance.Engine.InitDiplomaticRelations()
+
 	return nil
 }
 

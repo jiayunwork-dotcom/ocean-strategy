@@ -5,6 +5,9 @@ export type ShipType = 'explorer' | 'constructor' | 'transport' | 'escort'
 export type GamePhase = 'production' | 'decision' | 'event' | 'settlement'
 export type GameStatus = 'waiting' | 'playing' | 'finished'
 export type TechnologyCategory = 'extraction' | 'ecology' | 'military'
+export type RelationStatus = 'neutral' | 'nap' | 'alliance' | 'hostile'
+export type TreatyType = 'nap' | 'alliance'
+export type ProposalStatus = 'pending' | 'accepted' | 'rejected'
 
 export interface Player {
   id: string
@@ -99,6 +102,60 @@ export interface Typhoon {
   turns_left: number
 }
 
+export interface DiplomaticRelation {
+  game_id: string
+  player1_id: string
+  player2_id: string
+  status: RelationStatus
+  has_nap: boolean
+  has_alliance: boolean
+  at_war: boolean
+}
+
+export interface DiplomaticProposal {
+  id: string
+  game_id: string
+  from_player_id: string
+  to_player_id: string
+  treaty_type: TreatyType
+  status: ProposalStatus
+  created_at: number
+}
+
+export interface ReputationCooldown {
+  player_id: string
+  game_id: string
+  turns_left: number
+  reason: string
+}
+
+export interface BattleLog {
+  id: string
+  game_id: string
+  turn: number
+  attacker_id: string
+  defender_id: string
+  attacker_ship_id: string
+  defender_ship_id: string
+  hex_q: number
+  hex_r: number
+  attacker_damage: number
+  defender_damage: number
+  attacker_sunk: boolean
+  defender_sunk: boolean
+  timestamp: string
+}
+
+export interface GameLogEntry {
+  id: string
+  game_id: string
+  turn: number
+  message: string
+  type: string
+  player_id?: string
+  timestamp: string
+}
+
 export interface Game {
   id: string
   name: string
@@ -122,7 +179,11 @@ export interface GameState {
   ships: Ship[]
   facilities: Facility[]
   techs: PlayerTech[]
-  relations: any[]
+  relations: DiplomaticRelation[]
+  proposals: DiplomaticProposal[]
+  cooldowns: ReputationCooldown[]
+  battle_logs: BattleLog[]
+  game_logs: GameLogEntry[]
   typhoons: Typhoon[]
 }
 
@@ -172,4 +233,23 @@ export const PHASE_NAMES: Record<GamePhase, string> = {
   decision: '决策阶段',
   event: '事件阶段',
   settlement: '结算阶段'
+}
+
+export const RELATION_STATUS_NAMES: Record<RelationStatus, string> = {
+  neutral: '中立',
+  nap: '互不侵犯',
+  alliance: '军事同盟',
+  hostile: '敌对'
+}
+
+export const RELATION_STATUS_COLORS: Record<RelationStatus, string> = {
+  neutral: '#94a3b8',
+  nap: '#22c55e',
+  alliance: '#3b82f6',
+  hostile: '#ef4444'
+}
+
+export const TREATY_TYPE_NAMES: Record<TreatyType, string> = {
+  nap: '互不侵犯条约',
+  alliance: '军事同盟'
 }

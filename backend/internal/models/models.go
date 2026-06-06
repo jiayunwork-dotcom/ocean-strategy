@@ -137,15 +137,74 @@ type PlayerTech struct {
 	Completed   bool      `json:"completed"`
 }
 
+type RelationStatus string
+
+const (
+	RelationNeutral   RelationStatus = "neutral"
+	RelationNAP       RelationStatus = "nap"
+	RelationAlliance  RelationStatus = "alliance"
+	RelationHostile   RelationStatus = "hostile"
+)
+
+type TreatyType string
+
+const (
+	TreatyNAP      TreatyType = "nap"
+	TreatyAlliance TreatyType = "alliance"
+)
+
+type DiplomaticProposal struct {
+	ID         uuid.UUID    `json:"id"`
+	GameID     uuid.UUID    `json:"game_id"`
+	FromPlayerID uuid.UUID  `json:"from_player_id"`
+	ToPlayerID uuid.UUID    `json:"to_player_id"`
+	TreatyType TreatyType   `json:"treaty_type"`
+	Status     string       `json:"status"`
+	CreatedAt  int          `json:"created_at"`
+}
+
 type DiplomaticRelation struct {
-	GameID        uuid.UUID `json:"game_id"`
-	Player1ID     uuid.UUID `json:"player1_id"`
-	Player2ID     uuid.UUID `json:"player2_id"`
-	RelationLevel int       `json:"relation_level"`
-	HasNAP        bool      `json:"has_nap"`
-	HasAlliance   bool      `json:"has_alliance"`
-	HasTrade      bool      `json:"has_trade"`
-	AtWar         bool      `json:"at_war"`
+	GameID        uuid.UUID      `json:"game_id"`
+	Player1ID     uuid.UUID      `json:"player1_id"`
+	Player2ID     uuid.UUID      `json:"player2_id"`
+	Status        RelationStatus `json:"status"`
+	HasNAP        bool           `json:"has_nap"`
+	HasAlliance   bool           `json:"has_alliance"`
+	AtWar         bool           `json:"at_war"`
+}
+
+type ReputationCooldown struct {
+	PlayerID    uuid.UUID `json:"player_id"`
+	GameID      uuid.UUID `json:"game_id"`
+	TurnsLeft   int       `json:"turns_left"`
+	Reason      string    `json:"reason"`
+}
+
+type BattleLog struct {
+	ID             uuid.UUID `json:"id"`
+	GameID         uuid.UUID `json:"game_id"`
+	Turn           int       `json:"turn"`
+	AttackerID     uuid.UUID `json:"attacker_id"`
+	DefenderID     uuid.UUID `json:"defender_id"`
+	AttackerShipID uuid.UUID `json:"attacker_ship_id"`
+	DefenderShipID uuid.UUID `json:"defender_ship_id"`
+	HexQ           int       `json:"hex_q"`
+	HexR           int       `json:"hex_r"`
+	AttackerDamage int       `json:"attacker_damage"`
+	DefenderDamage int       `json:"defender_damage"`
+	AttackerSunk   bool      `json:"attacker_sunk"`
+	DefenderSunk   bool      `json:"defender_sunk"`
+	Timestamp      time.Time `json:"timestamp"`
+}
+
+type GameLogEntry struct {
+	ID        uuid.UUID `json:"id"`
+	GameID    uuid.UUID `json:"game_id"`
+	Turn      int       `json:"turn"`
+	Message   string    `json:"message"`
+	Type      string    `json:"type"`
+	PlayerID  *uuid.UUID `json:"player_id,omitempty"`
+	Timestamp time.Time `json:"timestamp"`
 }
 
 type GamePhase string
@@ -182,14 +241,18 @@ type Game struct {
 }
 
 type GameState struct {
-	Game       *Game               `json:"game"`
-	Hexes      map[string]*Hex     `json:"hexes"`
-	Players    map[uuid.UUID]*Player `json:"players"`
-	Ships      []*Ship             `json:"ships"`
-	Facilities []*Facility         `json:"facilities"`
-	Techs      []*PlayerTech       `json:"techs"`
-	Relations  []*DiplomaticRelation `json:"relations"`
-	Typhoons   []*Typhoon          `json:"typhoons"`
+	Game         *Game                     `json:"game"`
+	Hexes        map[string]*Hex           `json:"hexes"`
+	Players      map[uuid.UUID]*Player     `json:"players"`
+	Ships        []*Ship                   `json:"ships"`
+	Facilities   []*Facility               `json:"facilities"`
+	Techs        []*PlayerTech             `json:"techs"`
+	Relations    []*DiplomaticRelation     `json:"relations"`
+	Proposals    []*DiplomaticProposal     `json:"proposals"`
+	Cooldowns    []*ReputationCooldown     `json:"cooldowns"`
+	BattleLogs   []*BattleLog              `json:"battle_logs"`
+	GameLogs     []*GameLogEntry           `json:"game_logs"`
+	Typhoons     []*Typhoon                `json:"typhoons"`
 }
 
 type Typhoon struct {
