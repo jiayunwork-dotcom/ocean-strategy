@@ -369,6 +369,82 @@ export const AUCTION_ITEM_TYPE_NAMES: Record<AuctionItemType, string> = {
   blueprint: '蓝图'
 }
 
+export type FuturesContractStatus = 'open' | 'active' | 'settled' | 'liquidated' | 'cancelled'
+export type MarginStatus = 'safe' | 'warning' | 'danger'
+
+export interface FuturesContract {
+  id: string
+  game_id: string
+  creator_id: string
+  accepter_id?: string
+  resource: ResourceType
+  quantity: number
+  contract_price: number
+  delivery_turn: number
+  creator_margin: number
+  accepter_margin: number
+  initial_margin: number
+  status: FuturesContractStatus
+  margin_call_turn?: number
+  margin_call_party?: string
+  created_turn: number
+  settled_turn?: number
+  settlement_price?: number
+  creator_pnl?: number
+  accepter_pnl?: number
+  created_at: string
+  floating_pnl?: number
+  margin_status?: MarginStatus
+}
+
+export interface FuturesSettlement {
+  contract_id: string
+  resource: ResourceType
+  quantity: number
+  contract_price: number
+  settlement_price: number
+  creator_pnl: number
+  accepter_pnl: number
+  is_liquidated: boolean
+  turn: number
+  timestamp: string
+}
+
+export interface MarketManipulationPenalty {
+  player_id: string
+  game_id: string
+  resource: ResourceType
+  turns_left: number
+  fee_multiplier: number
+  created_turn: number
+}
+
+export interface FuturesData {
+  contracts: FuturesContract[]
+  settlements: FuturesSettlement[]
+  manipulation_penalties: MarketManipulationPenalty[]
+}
+
+export const FUTURES_STATUS_NAMES: Record<FuturesContractStatus, string> = {
+  open: '待接受',
+  active: '持有中',
+  settled: '已交割',
+  liquidated: '已爆仓',
+  cancelled: '已取消'
+}
+
+export const MARGIN_STATUS_COLORS: Record<MarginStatus, string> = {
+  safe: '#10b981',
+  warning: '#f59e0b',
+  danger: '#ef4444'
+}
+
+export const MARGIN_STATUS_NAMES: Record<MarginStatus, string> = {
+  safe: '安全',
+  warning: '警告',
+  danger: '追缴'
+}
+
 export const TREATY_TYPE_NAMES: Record<TreatyType, string> = {
   nap: '互不侵犯条约',
   alliance: '军事同盟'

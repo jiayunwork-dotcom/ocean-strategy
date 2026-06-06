@@ -94,6 +94,30 @@ type PlaceBidRequest struct {
 	Amount    int       `json:"amount"`
 }
 
+type CreateFuturesContractRequest struct {
+	PlayerID      uuid.UUID          `json:"player_id"`
+	Resource      models.ResourceType `json:"resource"`
+	Quantity      int                `json:"quantity"`
+	ContractPrice int                `json:"contract_price"`
+	DeliveryTurn  int                `json:"delivery_turn"`
+}
+
+type AcceptFuturesContractRequest struct {
+	PlayerID   uuid.UUID `json:"player_id"`
+	ContractID uuid.UUID `json:"contract_id"`
+}
+
+type CancelFuturesContractRequest struct {
+	PlayerID   uuid.UUID `json:"player_id"`
+	ContractID uuid.UUID `json:"contract_id"`
+}
+
+type AddFuturesMarginRequest struct {
+	PlayerID   uuid.UUID `json:"player_id"`
+	ContractID uuid.UUID `json:"contract_id"`
+	Amount     int       `json:"amount"`
+}
+
 func CreateGame(c *fiber.Ctx) error {
 	var req CreateGameRequest
 	if err := c.BodyParser(&req); err != nil {
@@ -622,4 +646,195 @@ func PlaceBid(c *fiber.Ctx) error {
 	})
 
 	return c.JSON(fiber.Map{"status": "success"})
+}
+
+func CreateFuturesContract(c *fiber.Ctx) error {
+	gameID, err := uuid.Parse(c.Params("id"))
+	if err != nil {
+		return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": "invalid game id"})
+	}
+
+	var req CreateFuturesContractRequest
+	if err := c.BodyParser(&req); err != nil {
+		return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	gm := game.GetGameManager()
+	instance, err := gm.GetGame(gameID)
+	if err != nil {
+		return c.Status(http.StatusNotFound).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	success, msg, contract := instance.Engine.CreateFuturesContract(req.PlayerID, req.Resource, req.Quantity, req.ContractPrice, req.DeliveryTurn)
+	if !success {
+		return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": msg})
+	}
+
+	hub := ws.GetHub()
+	hub.BroadcastToGame(gameID, "futures_created", fiber.Map{
+		"contract_id": contract.ID,
+		"player_id":   req.PlayerID,
+		"resource":    req.Resource,
+	})
+
+	return c.JSON(fiber.Map{"status": "success", "contract": contract})
+}
+
+func AcceptFuturesContract(c *fiber.Ctx) error {
+	gameID, err := uuid.Parse(c.Params("id"))
+	if err != nil {
+		return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": "invalid game id"})
+	}
+
+	var req AcceptFuturesContractRequest
+	if err := c.BodyParser(&req); err != nil {
+		return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	gm := game.GetGameManager()
+	instance, err := gm.GetGame(gameID)
+	if err != nil {
+		return c.Status(http.StatusNotFound).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	success, msg := instance.Engine.AcceptFuturesContract(req.PlayerID, req.ContractID)
+	if !success {
+		return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": msg})
+	}
+
+	hub := ws.GetHub()
+	hub.BroadcastToGame(gameID, "futures_accepted", fiber.Map{
+		"contract_id": req.ContractID,
+		"player_id":   req.PlayerID,
+	})
+
+	return c.JSON(fiber.Map{"status": "success"})
+}
+
+func CancelFuturesContract(c *fiber.Ctx) error {
+	gameID, err := uuid.Parse(c.Params("id"))
+	if err != nil {
+		return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": "invalid game id"})
+	}
+
+	var req CancelFuturesContractRequest
+	if err := c.BodyParser(&req); err != nil {
+		return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	gm := game.GetGameManager()
+	instance, err := gm.GetGame(gameID)
+	if err != nil {
+		return c.Status(http.StatusNotFound).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	success, msg := instance.Engine.CancelFuturesContract(req.PlayerID, req.ContractID)
+	if !success {
+		return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": msg})
+	}
+
+	hub := ws.GetHub()
+	hub.BroadcastToGame(gameID, "futures_cancelled", fiber.Map{
+		"contract_id": req.ContractID,
+		"player_id":   req.PlayerID,
+	})
+
+	return c.JSON(fiber.Map{"status": "success"})
+}
+
+func AddFuturesMargin(c *fiber.Ctx) error {
+	gameID, err := uuid.Parse(c.Params("id"))
+	if err != nil {
+		return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": "invalid game id"})
+	}
+
+	var req AddFuturesMarginRequest
+	if err := c.BodyParser(&req); err != nil {
+		return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	gm := game.GetGameManager()
+	instance, err := gm.GetGame(gameID)
+	if err != nil {
+		return c.Status(http.StatusNotFound).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	success, msg := instance.Engine.AddFuturesMargin(req.PlayerID, req.ContractID, req.Amount)
+	if !success {
+		return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": msg})
+	}
+
+	hub := ws.GetHub()
+	hub.BroadcastToGame(gameID, "futures_margin_added", fiber.Map{
+		"contract_id": req.ContractID,
+		"player_id":   req.PlayerID,
+		"amount":      req.Amount,
+	})
+
+	return c.JSON(fiber.Map{"status": "success"})
+}
+
+func GetFuturesData(c *fiber.Ctx) error {
+	gameID, err := uuid.Parse(c.Params("id"))
+	if err != nil {
+		return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": "invalid game id"})
+	}
+
+	playerIDStr := c.Query("player_id")
+	var playerID uuid.UUID
+	if playerIDStr != "" {
+		playerID, _ = uuid.Parse(playerIDStr)
+	}
+
+	gm := game.GetGameManager()
+	instance, err := gm.GetGame(gameID)
+	if err != nil {
+		return c.Status(http.StatusNotFound).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	state := instance.Engine.GetState()
+
+	var visibleContracts []*models.FuturesContract
+	if playerID != uuid.Nil {
+		visibleContracts = instance.Engine.GetVisibleFuturesContracts(playerID)
+	} else {
+		visibleContracts = state.FuturesContracts
+	}
+
+	contractsWithPnL := make([]fiber.Map, 0, len(visibleContracts))
+	for _, contract := range visibleContracts {
+		contractMap := fiber.Map{
+			"id":               contract.ID,
+			"game_id":          contract.GameID,
+			"creator_id":       contract.CreatorID,
+			"accepter_id":      contract.AccepterID,
+			"resource":         contract.Resource,
+			"quantity":         contract.Quantity,
+			"contract_price":   contract.ContractPrice,
+			"delivery_turn":    contract.DeliveryTurn,
+			"creator_margin":   contract.CreatorMargin,
+			"accepter_margin":  contract.AccepterMargin,
+			"initial_margin":   contract.InitialMargin,
+			"status":           contract.Status,
+			"margin_call_turn": contract.MarginCallTurn,
+			"margin_call_party": contract.MarginCallParty,
+			"created_turn":     contract.CreatedTurn,
+			"settled_turn":     contract.SettledTurn,
+			"settlement_price": contract.SettlementPrice,
+			"creator_pnl":      contract.CreatorPnL,
+			"accepter_pnl":     contract.AccepterPnL,
+			"created_at":       contract.CreatedAt,
+		}
+		if playerID != uuid.Nil {
+			contractMap["floating_pnl"] = instance.Engine.GetFloatingPnL(contract, playerID)
+			contractMap["margin_status"] = instance.Engine.GetMarginStatus(contract, playerID)
+		}
+		contractsWithPnL = append(contractsWithPnL, contractMap)
+	}
+
+	return c.JSON(fiber.Map{
+		"contracts":           contractsWithPnL,
+		"settlements":         state.FuturesSettlements,
+		"manipulation_penalties": state.ManipulationPenalties,
+	})
 }

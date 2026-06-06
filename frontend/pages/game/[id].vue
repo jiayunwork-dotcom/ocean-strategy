@@ -45,6 +45,10 @@
             :current-player-id="currentPlayerId"
             @place-order="handlePlaceOrder"
             @cancel-order="handleCancelOrder"
+            @create-futures="handleCreateFutures"
+            @accept-futures="handleAcceptFutures"
+            @cancel-futures="handleCancelFutures"
+            @add-margin="handleAddMargin"
           />
           <AuctionPanel
             :game-state="gameState"
@@ -61,7 +65,7 @@
 </template>
 
 <script setup lang="ts">
-import type { OrderType, ResourceType, AuctionItemType } from '~/types'
+import type { OrderType, ResourceType, AuctionItemType, FuturesContract } from '~/types'
 
 const route = useRoute()
 const gameApi = useGameApi()
@@ -160,6 +164,66 @@ async function handlePlaceBid(auctionId: string, amount: number) {
   } catch (e) {
     console.error('Failed to place bid:', e)
     alert('出价失败')
+  }
+}
+
+async function handleCreateFutures(contract: { resource: ResourceType; quantity: number; contract_price: number; delivery_turn: number }) {
+  const gameId = route.params.id as string
+  const playerId = gameStore.currentPlayerId
+  if (!playerId) return
+  
+  try {
+    await gameApi.createFuturesContract(gameId, playerId, contract.resource, contract.quantity, contract.contract_price, contract.delivery_turn)
+    const state = await gameApi.getGame(gameId)
+    gameStore.setGameState(state)
+  } catch (e: any) {
+    console.error('Failed to create futures contract:', e)
+    alert(e.data?.error || '创建期货合约失败')
+  }
+}
+
+async function handleAcceptFutures(contractId: string) {
+  const gameId = route.params.id as string
+  const playerId = gameStore.currentPlayerId
+  if (!playerId) return
+  
+  try {
+    await gameApi.acceptFuturesContract(gameId, playerId, contractId)
+    const state = await gameApi.getGame(gameId)
+    gameStore.setGameState(state)
+  } catch (e: any) {
+    console.error('Failed to accept futures contract:', e)
+    alert(e.data?.error || '接受期货合约失败')
+  }
+}
+
+async function handleCancelFutures(contractId: string) {
+  const gameId = route.params.id as string
+  const playerId = gameStore.currentPlayerId
+  if (!playerId) return
+  
+  try {
+    await gameApi.cancelFuturesContract(gameId, playerId, contractId)
+    const state = await gameApi.getGame(gameId)
+    gameStore.setGameState(state)
+  } catch (e: any) {
+    console.error('Failed to cancel futures contract:', e)
+    alert(e.data?.error || '取消期货合约失败')
+  }
+}
+
+async function handleAddMargin(contractId: string, amount: number) {
+  const gameId = route.params.id as string
+  const playerId = gameStore.currentPlayerId
+  if (!playerId) return
+  
+  try {
+    await gameApi.addFuturesMargin(gameId, playerId, contractId, amount)
+    const state = await gameApi.getGame(gameId)
+    gameStore.setGameState(state)
+  } catch (e: any) {
+    console.error('Failed to add margin:', e)
+    alert(e.data?.error || '追加保证金失败')
   }
 }
 

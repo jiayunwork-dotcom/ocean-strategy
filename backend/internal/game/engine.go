@@ -231,6 +231,8 @@ func (ge *GameEngine) updateEcology() {
 
 func (ge *GameEngine) runSettlementPhase() {
 	ge.MatchOrders()
+	ge.CheckMarginCalls()
+	ge.ProcessFuturesAtTurnEnd()
 	ge.CalculateResourceStats()
 	ge.UpdatePrices()
 	ge.ProcessAuctions()
@@ -240,6 +242,7 @@ func (ge *GameEngine) runSettlementPhase() {
 	ge.progressResearch()
 	ge.resetShipMovePoints()
 	ge.ProcessCooldowns()
+	ge.ProcessManipulationPenalties()
 }
 
 func (ge *GameEngine) progressFacilityConstruction() {

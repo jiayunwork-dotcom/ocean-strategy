@@ -1,4 +1,4 @@
-import type { Game, GameState, Player, Technology, MarketData, Auction, OrderType, ResourceType, AuctionItemType } from '~/types'
+import type { Game, GameState, Player, Technology, MarketData, Auction, OrderType, ResourceType, AuctionItemType, FuturesData, FuturesContract } from '~/types'
 
 export function useGameApi() {
   const config = useRuntimeConfig()
@@ -137,6 +137,41 @@ export function useGameApi() {
     })
   }
 
+  const getFuturesData = async (gameId: string, playerId?: string): Promise<FuturesData> => {
+    const query = playerId ? { player_id: playerId } : {}
+    const res = await $fetch<FuturesData>(`${baseUrl}/games/${gameId}/futures`, { query })
+    return res
+  }
+
+  const createFuturesContract = async (gameId: string, playerId: string, resource: ResourceType, quantity: number, contractPrice: number, deliveryTurn: number): Promise<FuturesContract> => {
+    const res = await $fetch<any>(`${baseUrl}/games/${gameId}/futures`, {
+      method: 'POST',
+      body: { player_id: playerId, resource, quantity, contract_price: contractPrice, delivery_turn: deliveryTurn }
+    })
+    return res.contract
+  }
+
+  const acceptFuturesContract = async (gameId: string, playerId: string, contractId: string): Promise<void> => {
+    await $fetch(`${baseUrl}/games/${gameId}/futures/accept`, {
+      method: 'POST',
+      body: { player_id: playerId, contract_id: contractId }
+    })
+  }
+
+  const cancelFuturesContract = async (gameId: string, playerId: string, contractId: string): Promise<void> => {
+    await $fetch(`${baseUrl}/games/${gameId}/futures/cancel`, {
+      method: 'POST',
+      body: { player_id: playerId, contract_id: contractId }
+    })
+  }
+
+  const addFuturesMargin = async (gameId: string, playerId: string, contractId: string, amount: number): Promise<void> => {
+    await $fetch(`${baseUrl}/games/${gameId}/futures/margin`, {
+      method: 'POST',
+      body: { player_id: playerId, contract_id: contractId, amount }
+    })
+  }
+
   return {
     listGames,
     createGame,
@@ -157,6 +192,11 @@ export function useGameApi() {
     placeOrder,
     cancelOrder,
     createAuction,
-    placeBid
+    placeBid,
+    getFuturesData,
+    createFuturesContract,
+    acceptFuturesContract,
+    cancelFuturesContract,
+    addFuturesMargin
   }
 }

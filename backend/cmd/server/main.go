@@ -47,6 +47,12 @@ func main() {
 	api.Post("/games/:id/market/orders/cancel", handlers.CancelOrder)
 	api.Get("/games/:id/market", handlers.GetMarketData)
 
+	api.Post("/games/:id/futures", handlers.CreateFuturesContract)
+	api.Post("/games/:id/futures/accept", handlers.AcceptFuturesContract)
+	api.Post("/games/:id/futures/cancel", handlers.CancelFuturesContract)
+	api.Post("/games/:id/futures/margin", handlers.AddFuturesMargin)
+	api.Get("/games/:id/futures", handlers.GetFuturesData)
+
 	api.Post("/games/:id/auctions", handlers.CreateAuction)
 	api.Post("/games/:id/auctions/bid", handlers.PlaceBid)
 

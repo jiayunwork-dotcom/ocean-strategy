@@ -15,6 +15,11 @@ const (
 	MinReputationForBuying = 30
 	AuctionDuration        = 3
 	MinBidIncrement        = 0.10
+	MarginRate             = 0.20
+	MarginCallThreshold    = 0.80
+	MinDeliveryTurns       = 3
+	MaxDeliveryTurns       = 10
+	MarketManipulationThreshold = 0.30
 )
 
 func (ge *GameEngine) InitMarket() {
@@ -51,6 +56,9 @@ func (ge *GameEngine) InitMarket() {
 	ge.state.AuctionBids = make([]*models.AuctionBid, 0)
 	ge.state.FrozenShips = make(map[uuid.UUID]uuid.UUID)
 	ge.state.FrozenTechs = make(map[string]uuid.UUID)
+	ge.state.FuturesContracts = make([]*models.FuturesContract, 0)
+	ge.state.FuturesSettlements = make([]*models.FuturesSettlement, 0)
+	ge.state.ManipulationPenalties = make([]*models.MarketManipulationPenalty, 0)
 
 	for _, r := range resources {
 		ge.state.PriceHistory = append(ge.state.PriceHistory, &models.PriceHistoryEntry{
@@ -103,10 +111,15 @@ func (ge *GameEngine) PlaceOrder(playerID uuid.UUID, orderType models.OrderType,
 			return false, "资源不足"
 		}
 	} else {
+		if manipulated, _ := ge.CheckMarketManipulation(playerID, resource, quantity); manipulated {
+			ge.ApplyMarketManipulationPenalty(playerID, resource)
+		}
+
+		feeRate := ge.GetPlayerFeeRate(playerID, resource, orderType)
 		totalCost := quantity * price
-		fee := int(float64(totalCost) * DefaultFeeRate)
+		fee := int(float64(totalCost) * feeRate)
 		if player.Money < totalCost+fee {
-			return false, "金币不足（需支付货款+5%手续费）"
+			return false, "金币不足（需支付货款+手续费）"
 		}
 	}
 
@@ -256,9 +269,15 @@ func (ge *GameEngine) executeTrade(buyOrder, sellOrder *models.MarketOrder, quan
 	seller := ge.state.Players[sellOrder.PlayerID]
 
 	isAlliance := ge.isAlliance(buyOrder.PlayerID, sellOrder.PlayerID)
-	feeRate := DefaultFeeRate
+	feeRate := ge.GetPlayerFeeRate(buyOrder.PlayerID, buyOrder.Resource, models.OrderTypeBuy)
 	if isAlliance {
 		feeRate = AllianceFeeRate
+		for _, penalty := range ge.state.ManipulationPenalties {
+			if penalty.PlayerID == buyOrder.PlayerID && penalty.Resource == buyOrder.Resource && penalty.TurnsLeft > 0 {
+				feeRate = AllianceFeeRate * penalty.FeeMultiplier
+				break
+			}
+		}
 	}
 
 	totalAmount := quantity * tradePrice
@@ -725,4 +744,493 @@ func strResource(r models.ResourceType) string {
 		models.ResourceBiomaterial: "生物原料",
 	}
 	return names[r]
+}
+
+func (ge *GameEngine) CreateFuturesContract(playerID uuid.UUID, resource models.ResourceType, quantity int, contractPrice int, deliveryTurn int) (bool, string, *models.FuturesContract) {
+	player := ge.state.Players[playerID]
+	if player == nil {
+		return false, "玩家不存在", nil
+	}
+
+	if ge.state.Game.Phase != models.PhaseDecision {
+		return false, "只能在决策阶段创建期货合约", nil
+	}
+
+	currentTurn := ge.state.Game.CurrentTurn
+	minDelivery := currentTurn + MinDeliveryTurns
+	maxDelivery := currentTurn + MaxDeliveryTurns
+	if deliveryTurn < minDelivery || deliveryTurn > maxDelivery {
+		return false, "交割回合必须在" + strconv.Itoa(minDelivery) + "到" + strconv.Itoa(maxDelivery) + "之间", nil
+	}
+
+	if quantity <= 0 || contractPrice <= 0 {
+		return false, "数量和价格必须大于0", nil
+	}
+
+	totalValue := quantity * contractPrice
+	initialMargin := int(float64(totalValue) * MarginRate)
+	if player.Money < initialMargin {
+		return false, "金币不足，需缴纳保证金" + strconv.Itoa(initialMargin) + "金币", nil
+	}
+
+	player.Money -= initialMargin
+
+	contract := &models.FuturesContract{
+		ID:             uuid.New(),
+		GameID:         ge.state.Game.ID,
+		CreatorID:      playerID,
+		Resource:       resource,
+		Quantity:       quantity,
+		ContractPrice:  contractPrice,
+		DeliveryTurn:   deliveryTurn,
+		CreatorMargin:  initialMargin,
+		AccepterMargin: 0,
+		InitialMargin:  initialMargin,
+		Status:         models.FuturesStatusOpen,
+		CreatedTurn:    currentTurn,
+		CreatedAt:      time.Now(),
+	}
+
+	ge.state.FuturesContracts = append(ge.state.FuturesContracts, contract)
+
+	ge.addGameLog("futures", player.Name+" 创建期货合约："+strResource(resource)+" x"+
+		strconv.Itoa(quantity)+" @ "+strconv.Itoa(contractPrice)+"金币，交割回合"+strconv.Itoa(deliveryTurn), &playerID)
+
+	return true, "", contract
+}
+
+func (ge *GameEngine) AcceptFuturesContract(playerID uuid.UUID, contractID uuid.UUID) (bool, string) {
+	player := ge.state.Players[playerID]
+	if player == nil {
+		return false, "玩家不存在"
+	}
+
+	if ge.state.Game.Phase != models.PhaseDecision {
+		return false, "只能在决策阶段接受期货合约"
+	}
+
+	var contract *models.FuturesContract
+	for _, c := range ge.state.FuturesContracts {
+		if c.ID == contractID {
+			contract = c
+			break
+		}
+	}
+	if contract == nil {
+		return false, "合约不存在"
+	}
+	if contract.Status != models.FuturesStatusOpen {
+		return false, "合约不可接受"
+	}
+	if contract.CreatorID == playerID {
+		return false, "不能接受自己创建的合约"
+	}
+	if ge.isHostile(contract.CreatorID, playerID) {
+		return false, "不能与敌对玩家交易"
+	}
+
+	if player.Money < contract.InitialMargin {
+		return false, "金币不足，需缴纳保证金" + strconv.Itoa(contract.InitialMargin) + "金币", nil
+	}
+
+	player.Money -= contract.InitialMargin
+	contract.AccepterID = &playerID
+	contract.AccepterMargin = contract.InitialMargin
+	contract.Status = models.FuturesStatusActive
+
+	creator := ge.state.Players[contract.CreatorID]
+	ge.addGameLog("futures", player.Name+" 接受了"+creator.Name+"的期货合约："+
+		strResource(contract.Resource)+" x"+strconv.Itoa(contract.Quantity), &playerID)
+
+	return true, ""
+}
+
+func (ge *GameEngine) CancelFuturesContract(playerID uuid.UUID, contractID uuid.UUID) (bool, string) {
+	var contract *models.FuturesContract
+	for _, c := range ge.state.FuturesContracts {
+		if c.ID == contractID {
+			contract = c
+			break
+		}
+	}
+	if contract == nil {
+		return false, "合约不存在"
+	}
+	if contract.CreatorID != playerID {
+		return false, "不是你的合约"
+	}
+	if contract.Status != models.FuturesStatusOpen {
+		return false, "只能取消未被接受的合约"
+	}
+
+	player := ge.state.Players[playerID]
+	player.Money += contract.CreatorMargin
+	contract.Status = models.FuturesStatusCancelled
+
+	ge.addGameLog("futures", player.Name+" 取消了期货合约", &playerID)
+
+	return true, ""
+}
+
+func (ge *GameEngine) AddFuturesMargin(playerID uuid.UUID, contractID uuid.UUID, amount int) (bool, string) {
+	player := ge.state.Players[playerID]
+	if player == nil {
+		return false, "玩家不存在"
+	}
+	if amount <= 0 {
+		return false, "追加金额必须大于0"
+	}
+	if player.Money < amount {
+		return false, "金币不足"
+	}
+
+	var contract *models.FuturesContract
+	for _, c := range ge.state.FuturesContracts {
+		if c.ID == contractID {
+			contract = c
+			break
+		}
+	}
+	if contract == nil {
+		return false, "合约不存在"
+	}
+	if contract.Status != models.FuturesStatusActive {
+		return false, "合约未激活"
+	}
+
+	player.Money -= amount
+	if contract.CreatorID == playerID {
+		contract.CreatorMargin += amount
+	} else if contract.AccepterID != nil && *contract.AccepterID == playerID {
+		contract.AccepterMargin += amount
+	} else {
+		player.Money += amount
+		return false, "你不是合约参与方"
+	}
+
+	if contract.MarginCallParty != nil && *contract.MarginCallParty == playerID {
+		contract.MarginCallParty = nil
+		contract.MarginCallTurn = nil
+	}
+
+	ge.addGameLog("futures", player.Name+" 向期货合约追加保证金"+strconv.Itoa(amount)+"金币", &playerID)
+
+	return true, ""
+}
+
+func (ge *GameEngine) CheckMarginCalls() []*models.FuturesContract {
+	triggered := make([]*models.FuturesContract, 0)
+	currentTurn := ge.state.Game.CurrentTurn
+
+	for _, contract := range ge.state.FuturesContracts {
+		if contract.Status != models.FuturesStatusActive {
+			continue
+		}
+		if contract.AccepterID == nil {
+			continue
+		}
+
+		currentPrice := ge.getMarketPrice(contract.Resource)
+		priceDiff := currentPrice - contract.ContractPrice
+		creatorPnL := -priceDiff * contract.Quantity
+		accepterPnL := priceDiff * contract.Quantity
+
+		creatorEquity := contract.CreatorMargin + creatorPnL
+		accepterEquity := contract.AccepterMargin + accepterPnL
+
+		marginCallThreshold := int(float64(contract.InitialMargin) * (1.0 - MarginCallThreshold))
+
+		if creatorEquity < marginCallThreshold && contract.MarginCallParty == nil {
+			contract.MarginCallParty = &contract.CreatorID
+			contract.MarginCallTurn = &currentTurn
+			triggered = append(triggered, contract)
+			ge.addGameLog("futures", "玩家保证金不足，触发追缴通知", &contract.CreatorID)
+		}
+
+		if accepterEquity < marginCallThreshold && (contract.MarginCallParty == nil || *contract.MarginCallParty != *contract.AccepterID) {
+			contract.MarginCallParty = contract.AccepterID
+			contract.MarginCallTurn = &currentTurn
+			triggered = append(triggered, contract)
+			ge.addGameLog("futures", "玩家保证金不足，触发追缴通知", contract.AccepterID)
+		}
+	}
+
+	return triggered
+}
+
+func (ge *GameEngine) ForceLiquidateContract(contract *models.FuturesContract) *models.FuturesSettlement {
+	if contract.Status != models.FuturesStatusActive {
+		return nil
+	}
+
+	currentPrice := ge.getMarketPrice(contract.Resource)
+	priceDiff := currentPrice - contract.ContractPrice
+	creatorPnL := -priceDiff * contract.Quantity
+	accepterPnL := priceDiff * contract.Quantity
+
+	creator := ge.state.Players[contract.CreatorID]
+	accepter := ge.state.Players[*contract.AccepterID]
+
+	var actualCreatorPnL, actualAccepterPnL int
+	if creatorPnL > 0 {
+		actualCreatorPnL = min(creatorPnL, contract.AccepterMargin)
+		actualAccepterPnL = -contract.AccepterMargin
+		creator.Money += contract.CreatorMargin + actualCreatorPnL
+		accepter.Money += 0
+	} else {
+		actualCreatorPnL = -contract.CreatorMargin
+		actualAccepterPnL = min(accepterPnL, contract.CreatorMargin)
+		creator.Money += 0
+		accepter.Money += contract.AccepterMargin + actualAccepterPnL
+	}
+
+	currentTurn := ge.state.Game.CurrentTurn
+	settlement := &models.FuturesSettlement{
+		ContractID:      contract.ID,
+		Resource:        contract.Resource,
+		Quantity:        contract.Quantity,
+		ContractPrice:   contract.ContractPrice,
+		SettlementPrice: currentPrice,
+		CreatorPnL:      actualCreatorPnL,
+		AccepterPnL:     actualAccepterPnL,
+		IsLiquidated:    true,
+		Turn:            currentTurn,
+		Timestamp:       time.Now(),
+	}
+
+	contract.Status = models.FuturesStatusLiquidated
+	contract.SettledTurn = &currentTurn
+	contract.SettlementPrice = &currentPrice
+	contract.CreatorPnL = &actualCreatorPnL
+	contract.AccepterPnL = &actualAccepterPnL
+
+	ge.state.FuturesSettlements = append(ge.state.FuturesSettlements, settlement)
+
+	ge.addGameLog("futures", "期货合约爆仓："+creator.Name+"(做空) vs "+accepter.Name+"(做多)，"+
+		strResource(contract.Resource)+" x"+strconv.Itoa(contract.Quantity)+
+		"，结算价"+strconv.Itoa(currentPrice)+"金币", nil)
+
+	return settlement
+}
+
+func (ge *GameEngine) SettleFuturesContract(contract *models.FuturesContract) *models.FuturesSettlement {
+	if contract.Status != models.FuturesStatusActive {
+		return nil
+	}
+
+	currentPrice := ge.getMarketPrice(contract.Resource)
+	priceDiff := currentPrice - contract.ContractPrice
+	creatorPnL := -priceDiff * contract.Quantity
+	accepterPnL := priceDiff * contract.Quantity
+
+	creator := ge.state.Players[contract.CreatorID]
+	accepter := ge.state.Players[*contract.AccepterID]
+
+	creator.Money += contract.CreatorMargin + creatorPnL
+	accepter.Money += contract.AccepterMargin + accepterPnL
+
+	currentTurn := ge.state.Game.CurrentTurn
+	settlement := &models.FuturesSettlement{
+		ContractID:      contract.ID,
+		Resource:        contract.Resource,
+		Quantity:        contract.Quantity,
+		ContractPrice:   contract.ContractPrice,
+		SettlementPrice: currentPrice,
+		CreatorPnL:      creatorPnL,
+		AccepterPnL:     accepterPnL,
+		IsLiquidated:    false,
+		Turn:            currentTurn,
+		Timestamp:       time.Now(),
+	}
+
+	contract.Status = models.FuturesStatusSettled
+	contract.SettledTurn = &currentTurn
+	contract.SettlementPrice = &currentPrice
+	contract.CreatorPnL = &creatorPnL
+	contract.AccepterPnL = &accepterPnL
+
+	ge.state.FuturesSettlements = append(ge.state.FuturesSettlements, settlement)
+
+	ge.addGameLog("futures", "期货合约交割："+creator.Name+"(做空) vs "+accepter.Name+"(做多)，"+
+		strResource(contract.Resource)+" x"+strconv.Itoa(contract.Quantity)+
+		"，合约价"+strconv.Itoa(contract.ContractPrice)+"，结算价"+strconv.Itoa(currentPrice)+
+		"，空方"+strconv.Itoa(creatorPnL)+"，多方"+strconv.Itoa(accepterPnL), nil)
+
+	return settlement
+}
+
+func (ge *GameEngine) ProcessFuturesAtTurnEnd() []*models.FuturesSettlement {
+	settlements := make([]*models.FuturesSettlement, 0)
+	currentTurn := ge.state.Game.CurrentTurn
+
+	for _, contract := range ge.state.FuturesContracts {
+		if contract.Status != models.FuturesStatusActive {
+			continue
+		}
+
+		if contract.MarginCallTurn != nil && contract.MarginCallParty != nil {
+			if currentTurn > *contract.MarginCallTurn {
+				settlement := ge.ForceLiquidateContract(contract)
+				if settlement != nil {
+					settlements = append(settlements, settlement)
+				}
+				continue
+			}
+		}
+
+		if currentTurn >= contract.DeliveryTurn {
+			settlement := ge.SettleFuturesContract(contract)
+			if settlement != nil {
+				settlements = append(settlements, settlement)
+			}
+		}
+	}
+
+	return settlements
+}
+
+func (ge *GameEngine) GetFloatingPnL(contract *models.FuturesContract, playerID uuid.UUID) int {
+	if contract.Status != models.FuturesStatusActive && contract.Status != models.FuturesStatusOpen {
+		if contract.CreatorPnL != nil && contract.CreatorID == playerID {
+			return *contract.CreatorPnL
+		}
+		if contract.AccepterPnL != nil && contract.AccepterID != nil && *contract.AccepterID == playerID {
+			return *contract.AccepterPnL
+		}
+		return 0
+	}
+
+	currentPrice := ge.getMarketPrice(contract.Resource)
+	priceDiff := currentPrice - contract.ContractPrice
+
+	if contract.CreatorID == playerID {
+		return -priceDiff * contract.Quantity
+	}
+	if contract.AccepterID != nil && *contract.AccepterID == playerID {
+		return priceDiff * contract.Quantity
+	}
+	return 0
+}
+
+func (ge *GameEngine) GetMarginStatus(contract *models.FuturesContract, playerID uuid.UUID) string {
+	if contract.Status != models.FuturesStatusActive {
+		return "safe"
+	}
+
+	var margin int
+	if contract.CreatorID == playerID {
+		margin = contract.CreatorMargin
+	} else if contract.AccepterID != nil && *contract.AccepterID == playerID {
+		margin = contract.AccepterMargin
+	} else {
+		return "safe"
+	}
+
+	pnl := ge.GetFloatingPnL(contract, playerID)
+	equity := margin + pnl
+	warningThreshold := int(float64(contract.InitialMargin) * 0.5)
+	dangerThreshold := int(float64(contract.InitialMargin) * (1.0 - MarginCallThreshold))
+
+	if equity <= dangerThreshold {
+		return "danger"
+	} else if equity <= warningThreshold {
+		return "warning"
+	}
+	return "safe"
+}
+
+func (ge *GameEngine) GetVisibleFuturesContracts(playerID uuid.UUID) []*models.FuturesContract {
+	visible := make([]*models.FuturesContract, 0)
+	for _, c := range ge.state.FuturesContracts {
+		if c.Status == models.FuturesStatusOpen {
+			if c.CreatorID == playerID {
+				visible = append(visible, c)
+				continue
+			}
+			if ge.isHostile(playerID, c.CreatorID) {
+				continue
+			}
+			visible = append(visible, c)
+		} else if c.Status == models.FuturesStatusActive {
+			if c.CreatorID == playerID || (c.AccepterID != nil && *c.AccepterID == playerID) {
+				visible = append(visible, c)
+			}
+		} else if c.Status == models.FuturesStatusSettled || c.Status == models.FuturesStatusLiquidated {
+			if c.CreatorID == playerID || (c.AccepterID != nil && *c.AccepterID == playerID) {
+				visible = append(visible, c)
+			}
+		}
+	}
+	return visible
+}
+
+func (ge *GameEngine) GetMarketLiquidity(resource models.ResourceType) int {
+	total := 0
+	for _, order := range ge.state.MarketOrders {
+		if order.Resource == resource && order.OrderType == models.OrderTypeSell {
+			if order.Status == models.OrderStatusActive || order.Status == models.OrderStatusPartial {
+				total += order.RemainingQty
+			}
+		}
+	}
+	return total
+}
+
+func (ge *GameEngine) CheckMarketManipulation(playerID uuid.UUID, resource models.ResourceType, buyQuantity int) (bool, string) {
+	liquidity := ge.GetMarketLiquidity(resource)
+	if liquidity == 0 {
+		return false, ""
+	}
+
+	ratio := float64(buyQuantity) / float64(liquidity)
+	if ratio >= MarketManipulationThreshold {
+		return true, "买入量超过流通量30%"
+	}
+	return false, ""
+}
+
+func (ge *GameEngine) ApplyMarketManipulationPenalty(playerID uuid.UUID, resource models.ResourceType) {
+	player := ge.state.Players[playerID]
+	if player == nil {
+		return
+	}
+
+	player.Reputation = max(0, player.Reputation-10)
+
+	penalty := &models.MarketManipulationPenalty{
+		PlayerID:      playerID,
+		GameID:        ge.state.Game.ID,
+		Resource:      resource,
+		TurnsLeft:     3,
+		FeeMultiplier: 2.0,
+		CreatedTurn:   ge.state.Game.CurrentTurn,
+	}
+	ge.state.ManipulationPenalties = append(ge.state.ManipulationPenalties, penalty)
+
+	ge.addGameLog("market", player.Name+" 被检测到市场操纵，声誉-10，未来3回合"+
+		strResource(resource)+"买入手续费翻倍", &playerID)
+}
+
+func (ge *GameEngine) GetPlayerFeeRate(playerID uuid.UUID, resource models.ResourceType, orderType models.OrderType) float64 {
+	feeRate := DefaultFeeRate
+	if orderType == models.OrderTypeBuy {
+		for _, penalty := range ge.state.ManipulationPenalties {
+			if penalty.PlayerID == playerID && penalty.Resource == resource && penalty.TurnsLeft > 0 {
+				feeRate *= penalty.FeeMultiplier
+				break
+			}
+		}
+	}
+	return feeRate
+}
+
+func (ge *GameEngine) ProcessManipulationPenalties() {
+	remaining := make([]*models.MarketManipulationPenalty, 0)
+	for _, p := range ge.state.ManipulationPenalties {
+		p.TurnsLeft--
+		if p.TurnsLeft > 0 {
+			remaining = append(remaining, p)
+		}
+	}
+	ge.state.ManipulationPenalties = remaining
 }

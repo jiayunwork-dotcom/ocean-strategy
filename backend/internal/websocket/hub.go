@@ -120,3 +120,27 @@ func (h *Hub) SendToClient(clientID uuid.UUID, msgType string, data interface{})
 		delete(h.clients, client.ID)
 	}
 }
+
+func (h *Hub) SendToPlayer(gameID uuid.UUID, playerID uuid.UUID, msgType string, data interface{}) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	jsonData, _ := json.Marshal(data)
+	msg := &Message{
+		GameID:   gameID,
+		Type:     msgType,
+		Data:     jsonData,
+		PlayerID: playerID,
+	}
+
+	for _, client := range h.clients {
+		if client.GameID == gameID && client.PlayerID == playerID {
+			select {
+			case client.Send <- h.serializeMessage(msg):
+			default:
+				close(client.Send)
+				delete(h.clients, client.ID)
+			}
+		}
+	}
+}

@@ -260,9 +260,12 @@ type GameState struct {
 	ResourceStats  map[ResourceType]*ResourceStats `json:"resource_stats"`
 	Auctions       []*Auction                `json:"auctions"`
 	AuctionBids    []*AuctionBid             `json:"auction_bids"`
-	CurrentPrices  map[ResourceType]int      `json:"current_prices"`
-	FrozenShips    map[uuid.UUID]uuid.UUID   `json:"frozen_ships"`
-	FrozenTechs    map[string]uuid.UUID      `json:"frozen_techs"`
+	CurrentPrices        map[ResourceType]int              `json:"current_prices"`
+	FrozenShips          map[uuid.UUID]uuid.UUID           `json:"frozen_ships"`
+	FrozenTechs          map[string]uuid.UUID              `json:"frozen_techs"`
+	FuturesContracts     []*FuturesContract                `json:"futures_contracts"`
+	FuturesSettlements   []*FuturesSettlement              `json:"futures_settlements"`
+	ManipulationPenalties []*MarketManipulationPenalty    `json:"manipulation_penalties"`
 }
 
 type Typhoon struct {
@@ -385,4 +388,59 @@ type AuctionBid struct {
 	Amount     int       `json:"amount"`
 	Turn       int       `json:"turn"`
 	Timestamp  time.Time `json:"timestamp"`
+}
+
+type FuturesContractStatus string
+
+const (
+	FuturesStatusOpen       FuturesContractStatus = "open"
+	FuturesStatusActive     FuturesContractStatus = "active"
+	FuturesStatusSettled    FuturesContractStatus = "settled"
+	FuturesStatusLiquidated FuturesContractStatus = "liquidated"
+	FuturesStatusCancelled  FuturesContractStatus = "cancelled"
+)
+
+type FuturesContract struct {
+	ID              uuid.UUID            `json:"id"`
+	GameID          uuid.UUID            `json:"game_id"`
+	CreatorID       uuid.UUID            `json:"creator_id"`
+	AccepterID      *uuid.UUID           `json:"accepter_id,omitempty"`
+	Resource        ResourceType         `json:"resource"`
+	Quantity        int                  `json:"quantity"`
+	ContractPrice   int                  `json:"contract_price"`
+	DeliveryTurn    int                  `json:"delivery_turn"`
+	CreatorMargin   int                  `json:"creator_margin"`
+	AccepterMargin  int                  `json:"accepter_margin"`
+	InitialMargin   int                  `json:"initial_margin"`
+	Status          FuturesContractStatus `json:"status"`
+	MarginCallTurn  *int                 `json:"margin_call_turn,omitempty"`
+	MarginCallParty *uuid.UUID           `json:"margin_call_party,omitempty"`
+	CreatedTurn     int                  `json:"created_turn"`
+	SettledTurn     *int                 `json:"settled_turn,omitempty"`
+	SettlementPrice *int                 `json:"settlement_price,omitempty"`
+	CreatorPnL      *int                 `json:"creator_pnl,omitempty"`
+	AccepterPnL     *int                 `json:"accepter_pnl,omitempty"`
+	CreatedAt       time.Time            `json:"created_at"`
+}
+
+type FuturesSettlement struct {
+	ContractID      uuid.UUID `json:"contract_id"`
+	Resource        ResourceType `json:"resource"`
+	Quantity        int       `json:"quantity"`
+	ContractPrice   int       `json:"contract_price"`
+	SettlementPrice int       `json:"settlement_price"`
+	CreatorPnL      int       `json:"creator_pnl"`
+	AccepterPnL     int       `json:"accepter_pnl"`
+	IsLiquidated    bool      `json:"is_liquidated"`
+	Turn            int       `json:"turn"`
+	Timestamp       time.Time `json:"timestamp"`
+}
+
+type MarketManipulationPenalty struct {
+	PlayerID      uuid.UUID    `json:"player_id"`
+	GameID        uuid.UUID    `json:"game_id"`
+	Resource      ResourceType `json:"resource"`
+	TurnsLeft     int          `json:"turns_left"`
+	FeeMultiplier float64      `json:"fee_multiplier"`
+	CreatedTurn   int          `json:"created_turn"`
 }
