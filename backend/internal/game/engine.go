@@ -215,6 +215,38 @@ func (ge *GameEngine) updateEcology() {
 func (ge *GameEngine) runSettlementPhase() {
 	ge.destroyDestroyedShips()
 	ge.repairFacilities()
+	ge.progressFacilityConstruction()
+	ge.progressResearch()
+	ge.resetShipMovePoints()
+}
+
+func (ge *GameEngine) progressFacilityConstruction() {
+	for _, facility := range ge.state.Facilities {
+		if facility.BuildTurnsLeft > 0 {
+			facility.BuildTurnsLeft--
+			if facility.BuildTurnsLeft <= 0 {
+				facility.IsActive = true
+			}
+		}
+	}
+}
+
+func (ge *GameEngine) progressResearch() {
+	for _, pt := range ge.state.Techs {
+		if pt.Researching && !pt.Completed {
+			pt.TurnsLeft--
+			if pt.TurnsLeft <= 0 {
+				pt.Completed = true
+				pt.Researching = false
+			}
+		}
+	}
+}
+
+func (ge *GameEngine) resetShipMovePoints() {
+	for _, ship := range ge.state.Ships {
+		ship.MovePoints = ship.Speed
+	}
 }
 
 func (ge *GameEngine) destroyDestroyedShips() {
@@ -442,16 +474,41 @@ func (ge *GameEngine) MoveShip(shipID uuid.UUID, toQ, toR int) bool {
 		return false
 	}
 
-	if ship.Fuel < distance*2 {
+	fuelCost := ge.calculateFuelCost(ship.HexQ, ship.HexR, toQ, toR)
+	if ship.Fuel < fuelCost {
 		return false
 	}
 
 	ship.HexQ = toQ
 	ship.HexR = toR
 	ship.MovePoints -= distance
-	ship.Fuel -= distance * 2
+	ship.Fuel -= fuelCost
 
 	return true
+}
+
+func (ge *GameEngine) calculateFuelCost(fromQ, fromR, toQ, toR int) int {
+	fromHexKey := HexKey(fromQ, fromR)
+	fromHex, ok := ge.state.Hexes[fromHexKey]
+	if !ok || !fromHex.HasCurrent {
+		return HexDistance(fromQ, fromR, toQ, toR) * 2
+	}
+
+	dq := toQ - fromQ
+	dr := toR - fromR
+
+	currentDir := axialDirections[fromHex.CurrentDir]
+	cdq, cdr := currentDir[0], currentDir[1]
+
+	dotProduct := dq*cdq + dr*cdr + (dq+dr)*(cdq+cdr)
+
+	if dotProduct > 0 {
+		return HexDistance(fromQ, fromR, toQ, toR) * 1
+	} else if dotProduct < 0 {
+		return HexDistance(fromQ, fromR, toQ, toR) * 4
+	}
+
+	return HexDistance(fromQ, fromR, toQ, toR) * 2
 }
 
 func (ge *GameEngine) Explore(shipID uuid.UUID) bool {

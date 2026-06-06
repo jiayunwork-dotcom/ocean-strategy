@@ -9,10 +9,10 @@ export function useGameApi() {
     return res
   }
 
-  const createGame = async (name: string, maxTurns: number = 50, mapRadius: number = 6): Promise<Game> => {
+  const createGame = async (name: string, maxTurns: number = 50, mapRadius: number = 6, winCondition: string = 'economic'): Promise<Game> => {
     const res = await $fetch<Game>(`${baseUrl}/games`, {
       method: 'POST',
-      body: { name, max_turns: maxTurns, map_radius: mapRadius }
+      body: { name, max_turns: maxTurns, map_radius: mapRadius, win_condition: winCondition }
     })
     return res
   }

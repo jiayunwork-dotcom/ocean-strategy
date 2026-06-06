@@ -11,9 +11,10 @@ import (
 )
 
 type CreateGameRequest struct {
-	Name      string `json:"name"`
-	MaxTurns  int    `json:"max_turns"`
-	MapRadius int    `json:"map_radius"`
+	Name         string `json:"name"`
+	MaxTurns     int    `json:"max_turns"`
+	MapRadius    int    `json:"map_radius"`
+	WinCondition string `json:"win_condition"`
 }
 
 type JoinGameRequest struct {
@@ -64,7 +65,7 @@ func CreateGame(c *fiber.Ctx) error {
 	}
 
 	gm := game.GetGameManager()
-	gameModel, err := gm.CreateGame(req.Name, req.MaxTurns, req.MapRadius)
+	gameModel, err := gm.CreateGame(req.Name, req.MaxTurns, req.MapRadius, req.WinCondition)
 	if err != nil {
 		return c.Status(http.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}

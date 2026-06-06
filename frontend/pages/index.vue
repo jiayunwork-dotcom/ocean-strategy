@@ -67,8 +67,18 @@
             <input v-model.number="maxTurns" type="number" min="10" max="200" class="form-input" />
           </div>
           <div class="form-group">
-            <label>地图大小</label>
+            <label>地图大小（半径）</label>
             <input v-model.number="mapRadius" type="number" min="4" max="10" class="form-input" />
+          </div>
+          <div class="form-group">
+            <label>胜利条件</label>
+            <select v-model="winCondition" class="form-input">
+              <option value="economic">💰 经济总量第一</option>
+              <option value="territory">🗺️ 控制海域面积最大</option>
+              <option value="technology">🔬 科技全部研发完成</option>
+              <option value="diplomatic">🤝 外交声誉最高</option>
+              <option value="comprehensive">📊 综合评分</option>
+            </select>
           </div>
           <div class="form-actions">
             <button class="btn secondary" @click="showCreateDialog = false">取消</button>
@@ -88,10 +98,11 @@ const showCreateDialog = ref(false)
 const newGameName = ref('我的深海游戏')
 const maxTurns = ref(50)
 const mapRadius = ref(6)
+const winCondition = ref('economic')
 
 async function createGame() {
   try {
-    const game = await gameApi.createGame(newGameName.value, maxTurns.value, mapRadius.value)
+    const game = await gameApi.createGame(newGameName.value, maxTurns.value, mapRadius.value, winCondition.value)
     
     const color = '#' + Math.floor(Math.random()*16777215).toString(16).padStart(6, '0')
     const player = await gameApi.joinGame(game.id, '玩家1', color)

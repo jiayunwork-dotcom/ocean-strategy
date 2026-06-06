@@ -34,12 +34,16 @@ func GetGameManager() *GameManager {
 	return manager
 }
 
-func (gm *GameManager) CreateGame(name string, maxTurns int, mapRadius int) (*models.Game, error) {
+func (gm *GameManager) CreateGame(name string, maxTurns int, mapRadius int, winCondition string) (*models.Game, error) {
 	gm.mu.Lock()
 	defer gm.mu.Unlock()
 
 	gameID := uuid.New()
 	seed := time.Now().UnixNano()
+
+	if winCondition == "" {
+		winCondition = "economic"
+	}
 
 	game := &models.Game{
 		ID:           gameID,
@@ -53,7 +57,7 @@ func (gm *GameManager) CreateGame(name string, maxTurns int, mapRadius int) (*mo
 		CurrentPlayerIndex: 0,
 		CreatedAt:    time.Now(),
 		UpdatedAt:    time.Now(),
-		WinCondition: "economic",
+		WinCondition: winCondition,
 	}
 
 	generator := NewMapGenerator(mapRadius, seed)
@@ -210,11 +214,125 @@ func (gm *GameManager) NextPhase(gameID uuid.UUID) error {
 
 func (gm *GameManager) determineWinner(instance *GameInstance) {
 	state := instance.Engine.GetState()
+	winCondition := state.Game.WinCondition
+
+	switch winCondition {
+	case "economic":
+		gm.determineWinnerByEconomy(state)
+	case "territory":
+		gm.determineWinnerByTerritory(state)
+	case "technology":
+		gm.determineWinnerByTechnology(state)
+	case "diplomatic":
+		gm.determineWinnerByDiplomacy(state)
+	default:
+		gm.determineWinnerByScore(state)
+	}
+}
+
+func (gm *GameManager) determineWinnerByEconomy(state *models.GameState) {
+	var winner *models.Player
+	highestMoney := 0
+
+	for _, player := range state.Players {
+		if player.Money > highestMoney {
+			highestMoney = player.Money
+			winner = player
+		}
+	}
+
+	if winner != nil {
+		state.Game.WinnerID = &winner.ID
+	}
+}
+
+func (gm *GameManager) determineWinnerByTerritory(state *models.GameState) {
+	var winner *models.Player
+	maxHexes := 0
+
+	playerHexCount := make(map[uuid.UUID]int)
+	for _, hex := range state.Hexes {
+		if hex.OwnerID != nil {
+			playerHexCount[*hex.OwnerID]++
+		}
+	}
+
+	for playerID, count := range playerHexCount {
+		if count > maxHexes {
+			maxHexes = count
+			winner = state.Players[playerID]
+		}
+	}
+
+	if winner != nil {
+		state.Game.WinnerID = &winner.ID
+	}
+}
+
+func (gm *GameManager) determineWinnerByTechnology(state *models.GameState) {
+	var winner *models.Player
+	maxTechs := 0
+
+	playerTechCount := make(map[uuid.UUID]int)
+	for _, pt := range state.Techs {
+		if pt.Completed {
+			playerTechCount[pt.PlayerID]++
+		}
+	}
+
+	for playerID, count := range playerTechCount {
+		if count > maxTechs {
+			maxTechs = count
+			winner = state.Players[playerID]
+		}
+	}
+
+	if winner != nil {
+		state.Game.WinnerID = &winner.ID
+	}
+}
+
+func (gm *GameManager) determineWinnerByDiplomacy(state *models.GameState) {
+	var winner *models.Player
+	highestReputation := 0
+
+	for _, player := range state.Players {
+		if player.Reputation > highestReputation {
+			highestReputation = player.Reputation
+			winner = player
+		}
+	}
+
+	if winner != nil {
+		state.Game.WinnerID = &winner.ID
+	}
+}
+
+func (gm *GameManager) determineWinnerByScore(state *models.GameState) {
 	var winner *models.Player
 	highestScore := 0
 
 	for _, player := range state.Players {
-		score := player.Money
+		score := player.Money / 1000
+
+		territoryCount := 0
+		for _, hex := range state.Hexes {
+			if hex.OwnerID != nil && *hex.OwnerID == player.ID {
+				territoryCount++
+			}
+		}
+		score += territoryCount * 100
+
+		techCount := 0
+		for _, pt := range state.Techs {
+			if pt.PlayerID == player.ID && pt.Completed {
+				techCount++
+			}
+		}
+		score += techCount * 500
+
+		score += player.Reputation * 10
+
 		if score > highestScore {
 			highestScore = score
 			winner = player
