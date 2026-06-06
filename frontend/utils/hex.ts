@@ -30,7 +30,7 @@ export function hexPath(cx: number, cy: number, size: number): string {
   return points.join(' ')
 }
 
-export function axialDirections: [number, number][] = [
+export const axialDirections: [number, number][] = [
   [1, 0], [1, -1], [0, -1],
   [-1, 0], [-1, 1], [0, 1]
 ]

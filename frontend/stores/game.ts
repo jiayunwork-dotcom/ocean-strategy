@@ -1,4 +1,5 @@
 import type { GameState, Player, Hex, Ship, Facility, PlayerTech, Typhoon } from '~/types'
+import { hexKey } from '~/utils/hex'
 
 export const useGameStore = defineStore('game', () => {
   const gameState = ref<GameState | null>(null)
