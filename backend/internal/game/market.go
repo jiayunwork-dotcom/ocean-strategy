@@ -62,6 +62,17 @@ func (ge *GameEngine) InitMarket() {
 	}
 }
 
+func (ge *GameEngine) ResetResourceStats() {
+	if ge.state.ResourceStats == nil {
+		return
+	}
+	for _, stats := range ge.state.ResourceStats {
+		stats.TotalMined = 0
+		stats.TotalUsed = 0
+		stats.TotalTraded = 0
+	}
+}
+
 func (ge *GameEngine) PlaceOrder(playerID uuid.UUID, orderType models.OrderType, resource models.ResourceType, quantity int, price int) (bool, string) {
 	player := ge.state.Players[playerID]
 	if player == nil {
@@ -354,9 +365,15 @@ func (ge *GameEngine) UpdatePrices() {
 		}
 
 		priceChange := 0.0
-		if supply > 0 && demand > 0 {
-			ratio := float64(demand) / float64(supply)
-			priceChange = (ratio - 1.0) * baseVolatility
+		if supply > 0 || demand > 0 {
+			if demand == 0 && supply > 0 {
+				priceChange = -baseVolatility * 0.5
+			} else if supply == 0 && demand > 0 {
+				priceChange = baseVolatility * 0.5
+			} else {
+				ratio := float64(demand) / float64(supply)
+				priceChange = (ratio - 1.0) * baseVolatility
+			}
 		}
 
 		newPrice := int(float64(price) * (1.0 + priceChange))
@@ -398,20 +415,6 @@ func (ge *GameEngine) TrimPriceHistory(maxTurns int) {
 		}
 	}
 	ge.state.PriceHistory = filtered
-}
-
-func (ge *GameEngine) getMarketPrice(resource models.ResourceType) int {
-	if price, ok := ge.state.CurrentPrices[resource]; ok {
-		return price
-	}
-	basePrices := map[models.ResourceType]int{
-		models.ResourceOil:         50,
-		models.ResourceGas:         40,
-		models.ResourceManganese:   30,
-		models.ResourceSulfide:     80,
-		models.ResourceBiomaterial: 100,
-	}
-	return basePrices[resource]
 }
 
 func (ge *GameEngine) GetVisibleOrders(playerID uuid.UUID) []*models.MarketOrder {
@@ -651,6 +654,16 @@ func (ge *GameEngine) transferAuctionItem(auction *models.Auction) {
 	case models.AuctionItemTech:
 		tech := GetTechnology(auction.Item.ItemID)
 		if tech != nil {
+			// 移除卖家的科技
+			newTechs := make([]*models.PlayerTech, 0)
+			for _, pt := range ge.state.Techs {
+				if !(pt.PlayerID == auction.SellerID && pt.TechID == tech.ID) {
+					newTechs = append(newTechs, pt)
+				}
+			}
+			ge.state.Techs = newTechs
+
+			// 给买家添加科技
 			ge.state.Techs = append(ge.state.Techs, &models.PlayerTech{
 				PlayerID:    buyerID,
 				TechID:      tech.ID,
@@ -712,18 +725,4 @@ func strResource(r models.ResourceType) string {
 		models.ResourceBiomaterial: "生物原料",
 	}
 	return names[r]
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
 }

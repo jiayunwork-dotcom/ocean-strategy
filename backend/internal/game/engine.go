@@ -28,6 +28,7 @@ func (ge *GameEngine) GetState() *models.GameState {
 func (ge *GameEngine) NextPhase() {
 	switch ge.state.Game.Phase {
 	case models.PhaseProduction:
+		ge.ResetResourceStats()
 		ge.runProductionPhase()
 		ge.state.Game.Phase = models.PhaseDecision
 	case models.PhaseDecision:
@@ -116,14 +117,19 @@ func (ge *GameEngine) produceFromFacility(facility *models.Facility, hex *models
 }
 
 func (ge *GameEngine) getMarketPrice(resource models.ResourceType) int {
-	prices := map[models.ResourceType]int{
+	if ge.state.CurrentPrices != nil {
+		if price, ok := ge.state.CurrentPrices[resource]; ok {
+			return price
+		}
+	}
+	basePrices := map[models.ResourceType]int{
 		models.ResourceOil:         50,
 		models.ResourceGas:         40,
 		models.ResourceManganese:   30,
 		models.ResourceSulfide:     80,
 		models.ResourceBiomaterial: 100,
 	}
-	return prices[resource]
+	return basePrices[resource]
 }
 
 func (ge *GameEngine) runEventPhase() {
